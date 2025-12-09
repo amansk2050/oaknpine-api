@@ -22,52 +22,316 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+# 🏡 OaknPine Homestay API
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+A comprehensive RESTful API for managing homestays, rooms, leads, bookings, and tour packages across North Bengal region. Built with NestJS, TypeORM, and PostgreSQL.
 
-## Installation
+## 📋 Overview
+
+OaknPine is a complete tourism CRM and property management system designed for homestay operators in the North Bengal region (Kalimpong, Darjeeling, Sikkim, etc.). This API powers the backend operations for:
+
+- **Homestay Management** - Manage multiple properties with room inventory
+- **Lead Management** - Track potential customers with follow-up workflows
+- **Booking Management** - Handle reservations, check-ins, check-outs, and payments
+- **Package Management** - Create predefined and custom tour packages
+
+## 🚀 Features
+
+### Homestay Management
+
+- Create and manage multiple homestay properties
+- Room inventory with view/non-view categorization
+- Dynamic per-head pricing model
+- Room blocking and availability management
+- Property-level amenities and media management
+
+### Lead Management
+
+- Capture leads from multiple sources (website, phone, referrals, etc.)
+- Lead scoring and prioritization (urgent, high, medium, low)
+- Follow-up tracking with outcomes
+- Automatic status progression
+- Conversion tracking to bookings
+
+### Booking Management
+
+- Room availability validation
+- Multi-room bookings with guest allocation
+- Automatic pricing calculation
+- Payment tracking (advance, partial, full)
+- Check-in/Check-out workflows
+- Booking statistics and reporting
+
+### Package Management
+
+- Predefined tour packages with itineraries
+- Dynamic pricing tiers (2-8 persons)
+- Custom package creation for specific customers
+- Inclusions/exclusions management
+- Quote generation and negotiation workflow
+
+## 🛠️ Tech Stack
+
+- **Framework**: NestJS v10
+- **Database**: PostgreSQL with TypeORM
+- **Documentation**: Swagger/OpenAPI
+- **Validation**: class-validator & class-transformer
+- **Language**: TypeScript
+
+## 📦 Installation
+
+### Prerequisites
+
+- Node.js >= 18.x
+- PostgreSQL >= 14.x
+- npm or yarn
+
+### Setup
+
+1. **Clone the repository**
 
 ```bash
-$ npm install
+git clone https://github.com/oaknpine/oaknpine-api.git
+cd oaknpine-api
 ```
 
-## Running the app
+2. **Install dependencies**
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Test
+3. **Configure environment variables**
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.example .env
 ```
 
-## Support
+Edit `.env` with your configuration:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```env
+# Server
+PORT=3000
 
-## Stay in touch
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
+DB_DATABASE=oaknpine_db
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# CORS
+CORS_ORIGIN=http://localhost:3001
+```
 
-## License
+4. **Create the database**
 
-Nest is [MIT licensed](LICENSE).
+```bash
+createdb oaknpine_db
+```
+
+5. **Run the application**
+
+```bash
+# Development
+npm run start:dev
+
+# Production
+npm run build
+npm run start:prod
+```
+
+## 📚 API Documentation
+
+Once the server is running, access the Swagger documentation at:
+
+```
+http://localhost:3000/api/docs
+```
+
+### API Endpoints Overview
+
+| Module    | Base Path          | Description                  |
+| --------- | ------------------ | ---------------------------- |
+| Homestays | `/api/v1/homestay` | Property and room management |
+| Leads     | `/api/v1/lead`     | Lead tracking and follow-ups |
+| Bookings  | `/api/v1/booking`  | Reservations and payments    |
+| Packages  | `/api/v1/packages` | Tour packages management     |
+
+### Key Endpoints
+
+#### Homestays
+
+- `POST /homestay` - Create homestay
+- `GET /homestay` - List all homestays
+- `POST /homestay/:id/rooms` - Add room
+- `PATCH /homestay/rooms/:id/block` - Block room
+- `PATCH /homestay/rooms/:id/pricing` - Update pricing
+
+#### Leads
+
+- `POST /lead` - Create lead
+- `GET /lead` - List leads with filters
+- `PATCH /lead/:id/status` - Update status
+- `POST /lead/:id/follow-ups` - Add follow-up
+- `GET /lead/statistics` - Get conversion stats
+
+#### Bookings
+
+- `POST /booking` - Create booking from lead
+- `PATCH /booking/:id/check-in` - Process check-in
+- `PATCH /booking/:id/check-out` - Process check-out
+- `POST /booking/:id/payments` - Record payment
+- `GET /booking/statistics` - Revenue statistics
+
+#### Packages
+
+- `POST /packages` - Create package
+- `POST /packages/:id/pricing` - Add pricing tier
+- `POST /packages/custom` - Create custom package
+- `PATCH /packages/custom/:id/send-quote` - Send quote
+
+## 🏗️ Project Structure
+
+```
+src/
+├── homestay/           # Homestay & room management
+│   ├── dto/
+│   ├── entities/
+│   ├── homestay.controller.ts
+│   ├── homestay.service.ts
+│   └── homestay.module.ts
+├── lead/               # Lead & follow-up management
+│   ├── dto/
+│   ├── entities/
+│   ├── lead.controller.ts
+│   ├── lead.service.ts
+│   └── lead.module.ts
+├── room-booking/       # Booking & payment management
+│   ├── dto/
+│   ├── entities/
+│   ├── room-booking.controller.ts
+│   ├── room-booking.service.ts
+│   └── room-booking.module.ts
+├── packages/           # Tour package management
+│   ├── dto/
+│   ├── entities/
+│   ├── packages.controller.ts
+│   ├── packages.service.ts
+│   └── packages.module.ts
+├── database/           # Database configuration
+├── app.module.ts
+└── main.ts
+```
+
+## 💰 Pricing Model
+
+OaknPine uses a **per-head per-night** pricing model:
+
+```
+Total = (Price Per Head × Number of Guests × Number of Nights) - Discount + Tax
+```
+
+### Room Types
+
+- **View Rooms** - Rooms with scenic views (typically higher priced)
+- **Non-View Rooms** - Standard rooms without views
+
+### Package Pricing Tiers
+
+Packages support tiered pricing for different group sizes (2-8 persons) with:
+
+- Season-based pricing (regular, peak, off-season, festive)
+- Room type variations (standard, deluxe, premium, luxury)
+
+## 🔄 Lead Workflow
+
+```
+NEW → CONTACTED → QUALIFIED → PROPOSAL_SENT → NEGOTIATION → CONVERTED
+                                                              ↓
+                                                          BOOKING
+```
+
+Leads can also be marked as `LOST` or `INACTIVE` at any stage.
+
+## 📊 Database Schema
+
+### Core Entities
+
+- `homestays` - Property information
+- `rooms` - Room inventory with pricing
+- `leads` - Customer inquiries
+- `lead_follow_ups` - Follow-up history
+- `bookings` - Reservations
+- `booking_rooms` - Room allocations per booking
+- `payments` - Payment records
+- `packages` - Tour packages
+- `package_itineraries` - Day-wise itinerary
+- `package_pricing` - Tiered pricing
+- `custom_packages` - Tailored packages
+
+## 🚀 Deployment
+
+### Railway (Recommended)
+
+1. Connect your GitHub repository
+2. Set environment variables in Railway dashboard
+3. Deploy automatically on push
+
+### Docker
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY dist ./dist
+EXPOSE 3000
+CMD ["node", "dist/main"]
+```
+
+## 🧪 Testing
+
+```bash
+# Unit tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+
+# Test coverage
+npm run test:cov
+```
+
+## 📝 Environment Variables
+
+| Variable      | Description             | Default                 |
+| ------------- | ----------------------- | ----------------------- |
+| `PORT`        | Server port             | `3000`                  |
+| `DB_HOST`     | PostgreSQL host         | `localhost`             |
+| `DB_PORT`     | PostgreSQL port         | `5432`                  |
+| `DB_USERNAME` | Database user           | `postgres`              |
+| `DB_PASSWORD` | Database password       | -                       |
+| `DB_DATABASE` | Database name           | `oaknpine_db`           |
+| `CORS_ORIGIN` | Allowed frontend origin | `http://localhost:3001` |
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is proprietary software owned by OaknPine Tourism.
+
+## 📞 Support
+
+- **Email**: support@oaknpine.com
+- **Website**: https://oaknpine.com
+
+---
+
+Built with ❤️ for North Bengal Tourism
