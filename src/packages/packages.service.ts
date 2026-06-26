@@ -70,9 +70,17 @@ export class PackagesService {
       createPackageDto.numberOfNights,
     );
 
-    // Create package
+    // Remove pricingTiers from the object passed to create()
+    const {
+      pricingTiers, // remove from spreading
+      itineraries,
+      inclusions,
+      ...rest
+    } = createPackageDto;
+
+    // Create package without pricingTiers
     const pkg = this.packageRepository.create({
-      ...createPackageDto,
+      ...rest,
       packageCode,
       validFrom: createPackageDto.validFrom
         ? new Date(createPackageDto.validFrom)
@@ -85,22 +93,22 @@ export class PackagesService {
     const savedPackage = await this.packageRepository.save(pkg);
 
     // Create itineraries if provided
-    if (createPackageDto.itineraries?.length) {
-      for (const itinerary of createPackageDto.itineraries) {
+    if (itineraries?.length) {
+      for (const itinerary of itineraries) {
         await this.addItinerary(savedPackage.id, itinerary);
       }
     }
 
     // Create pricing tiers if provided
-    if (createPackageDto.pricingTiers?.length) {
-      for (const pricing of createPackageDto.pricingTiers) {
+    if (pricingTiers?.length) {
+      for (const pricing of pricingTiers) {
         await this.addPricing(savedPackage.id, pricing);
       }
     }
 
     // Create inclusions if provided
-    if (createPackageDto.inclusions?.length) {
-      for (const inclusion of createPackageDto.inclusions) {
+    if (inclusions?.length) {
+      for (const inclusion of inclusions) {
         await this.addInclusion(savedPackage.id, inclusion);
       }
     }
@@ -310,10 +318,13 @@ export class PackagesService {
       );
     }
 
+    // Always set totalPrice before saving
+    const totalPrice = (dto.pricePerHead ?? 0) * (dto.numberOfPersons ?? 0);
+
     const pricing = this.pricingRepository.create({
       ...dto,
       packageId,
-      totalPrice: dto.pricePerHead * dto.numberOfPersons,
+      totalPrice,
       validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
       validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
     });

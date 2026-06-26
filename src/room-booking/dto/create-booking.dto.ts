@@ -8,8 +8,10 @@ import {
   IsNumber,
   IsDateString,
   Min,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { BookingSource } from '../entities/booking.entity';
 
 export class BookingRoomDto {
   @ApiProperty({
@@ -46,13 +48,48 @@ export class BookingRoomDto {
 }
 
 export class CreateBookingDto {
-  @ApiProperty({
-    description: 'Lead UUID from which booking is created',
+  @ApiPropertyOptional({
+    description:
+      'Lead UUID — provide this OR guestId (not both). Required if no guestId provided.',
     example: '123e4567-e89b-12d3-a456-426614174003',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  leadId: string;
+  leadId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Direct Guest UUID — for walk-in bookings without a lead. Provide this OR leadId.',
+    example: '123e4567-e89b-12d3-a456-426614174099',
+  })
+  @IsOptional()
+  @IsString()
+  guestId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Source of the booking',
+    enum: BookingSource,
+    default: BookingSource.LEAD,
+  })
+  @IsOptional()
+  @IsEnum(BookingSource)
+  bookingSource?: BookingSource;
+
+  @ApiPropertyOptional({
+    description: 'B2B Partner ID if booking is from B2B',
+    example: '123e4567-e89b-12d3-a456-426614174099',
+  })
+  @IsOptional()
+  @IsString()
+  b2bPartnerId?: string;
+
+  @ApiPropertyOptional({
+    description: 'B2B Partner Business Name',
+    example: 'Sunshine Travels Pvt Ltd',
+  })
+  @IsOptional()
+  @IsString()
+  b2bBusinessName?: string;
 
   @ApiProperty({
     description: 'Homestay UUID where booking is made',
@@ -141,4 +178,24 @@ export class CreateBookingDto {
   })
   @IsOptional()
   guestDetails?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    description: 'Custom count of adults for this booking',
+    example: 2,
+    minimum: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  numberOfAdults?: number;
+
+  @ApiPropertyOptional({
+    description: 'Custom count of children for this booking',
+    example: 0,
+    minimum: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  numberOfChildren?: number;
 }

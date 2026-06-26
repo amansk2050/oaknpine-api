@@ -7,9 +7,11 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import {
   ApiTags,
   ApiOperation,
@@ -26,6 +28,8 @@ import { BlockRoomDto } from './dto/block-room.dto';
 import { UpdateRoomPricingDto } from './dto/update-room-pricing.dto';
 import { Homestay } from './entities/homestay.entity';
 import { Room } from './entities/room.entity';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { BetterAuthUser } from '../auth/better-auth.service';
 
 @ApiTags('Homestay Management')
 @Controller('homestay')
@@ -49,7 +53,13 @@ export class HomestayController {
     status: 400,
     description: 'Invalid input data',
   })
-  createHomestay(@Body() createHomestayDto: CreateHomestayDto) {
+  createHomestay(
+    @Body() createHomestayDto: CreateHomestayDto,
+    @CurrentUser() user: BetterAuthUser,
+  ) {
+    if (user && !createHomestayDto.ownerId) {
+      createHomestayDto.ownerId = user.id;
+    }
     return this.homestayService.createHomestay(createHomestayDto);
   }
 
@@ -410,5 +420,46 @@ export class HomestayController {
     @Body() updatePricingDto: UpdateRoomPricingDto,
   ) {
     return this.homestayService.updateRoomPricing(roomId, updatePricingDto);
+  }
+
+  /* ─── Public Endpoints ─── */
+
+  @Public()
+  @Get('public/:slug')
+  @ApiOperation({
+    summary: 'Get public homestay profile by slug',
+    description:
+      'Retrieve general homestay info and its room details safely without guest info.',
+  })
+  @ApiParam({ name: 'slug', description: 'Unique public slug of the homestay' })
+  @ApiResponse({ status: 200, description: 'Return public profile details.' })
+  @ApiResponse({ status: 404, description: 'Homestay not found.' })
+  getPublicProfile(@Param('slug') slug: string) {
+    return this.homestayService.getPublicProfile(slug);
+  }
+
+  @Public()
+  @Get('public/:slug/availability')
+  @ApiOperation({
+    summary: 'Check room availability publicly by slug',
+    description:
+      'Returns available/booked status of each room without displaying sensitive guest bookings.',
+  })
+  @ApiParam({ name: 'slug', description: 'Unique public slug of the homestay' })
+  @ApiResponse({
+    status: 200,
+    description: 'Return list of rooms with their availability status.',
+  })
+  @ApiResponse({ status: 404, description: 'Homestay not found.' })
+  getPublicAvailability(
+    @Param('slug') slug: string,
+    @Query('checkInDate') checkInDate: string,
+    @Query('checkOutDate') checkOutDate: string,
+  ) {
+    return this.homestayService.getPublicAvailability(
+      slug,
+      checkInDate,
+      checkOutDate,
+    );
   }
 }

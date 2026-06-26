@@ -8,11 +8,17 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Lead } from '../../lead/entities/lead.entity';
 import { Homestay } from '../../homestay/entities/homestay.entity';
 import { BookingRoom } from './booking-room.entity';
 import { Payment } from './payment.entity';
+
+export enum BookingSource {
+  LEAD = 'lead',
+  DIRECT = 'direct',
+  B2B = 'b2b',
+}
 
 export enum BookingStatus {
   PENDING = 'pending',
@@ -40,12 +46,42 @@ export class Booking {
   @Column({ type: 'varchar', length: 50, unique: true })
   bookingReference: string;
 
-  @ApiProperty({
-    description: 'Lead ID from which this booking was created',
+  @ApiPropertyOptional({
+    description:
+      'Lead ID from which this booking was created (null for direct/walk-in bookings)',
     example: '123e4567-e89b-12d3-a456-426614174003',
   })
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', nullable: true })
   leadId: string;
+
+  @ApiPropertyOptional({
+    description: 'Direct Guest ID if booking was made without a lead (walk-in)',
+    example: '123e4567-e89b-12d3-a456-426614174099',
+  })
+  @Column({ type: 'uuid', nullable: true })
+  guestId: string;
+
+  @ApiProperty({
+    description: 'Source of the booking',
+    enum: BookingSource,
+    default: BookingSource.LEAD,
+  })
+  @Column({ type: 'enum', enum: BookingSource, default: BookingSource.LEAD })
+  bookingSource: BookingSource;
+
+  @ApiPropertyOptional({
+    description: 'B2B Partner ID if booking originated from a B2B request',
+    example: 'partner-uuid',
+  })
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  b2bPartnerId: string;
+
+  @ApiPropertyOptional({
+    description: 'B2B Business name for tracking and reporting',
+    example: 'Sunshine Travels Pvt Ltd',
+  })
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  b2bBusinessName: string;
 
   @ApiProperty({
     description: 'Homestay ID where booking is made',

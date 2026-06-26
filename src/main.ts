@@ -2,9 +2,25 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import * as express from 'express';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Serve uploaded files statically with CORS headers (needed for cross-origin <img> tags)
+  app.use(
+    '/uploads',
+    (req: any, res: any, next: any) => {
+      res.header(
+        'Access-Control-Allow-Origin',
+        process.env.CORS_ORIGIN || 'http://localhost:3001',
+      );
+      res.header('Access-Control-Allow-Methods', 'GET');
+      next();
+    },
+    express.static(join(process.cwd(), 'uploads')),
+  );
 
   // Enable CORS with environment variable configuration
   app.enableCors({
@@ -28,7 +44,7 @@ async function bootstrap() {
 
   // Swagger Configuration
   const config = new DocumentBuilder()
-    .setTitle('OaknPine Homestay API')
+    .setTitle('PineZone Travel CRM API')
     .setDescription(
       'RESTful API for managing homestays, rooms, guests, and bookings. ' +
         'This API provides comprehensive endpoints for homestay property management, ' +
@@ -58,12 +74,12 @@ async function bootstrap() {
       },
       'JWT-auth',
     )
-    .addServer('http://localhost:3000', 'Local Development Server')
-    .addServer('https://api.oaknpine.com', 'Production Server')
+    .addServer('http://localhost:4001', 'Local Development Server')
+    .addServer('https://api.pinezone.app', 'Production Server')
     .setContact(
-      'OaknPine Support',
-      'https://oaknpine.com',
-      'support@oaknpine.com',
+      'PineZone Support',
+      'https://pinezone.app',
+      'support@pinezone.app',
     )
     .setLicense('MIT', 'https://opensource.org/licenses/MIT')
     .build();
@@ -82,8 +98,8 @@ async function bootstrap() {
       },
       tryItOutEnabled: true,
     },
-    customSiteTitle: 'OaknPine API Documentation',
-    customfavIcon: 'https://oaknpine.com/favicon.ico',
+    customSiteTitle: 'PineZone API Documentation',
+    customfavIcon: 'https://pinezone.app/favicon.ico',
     customCss: `
       .swagger-ui .topbar { display: none }
       .swagger-ui .info { margin: 20px 0; }

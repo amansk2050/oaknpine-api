@@ -19,6 +19,15 @@ export class CreateHomestayDto {
   @MaxLength(255)
   name: string;
 
+  @ApiPropertyOptional({
+    description: 'Unique URL slug for public sharing',
+    example: 'mountain-view-homestay',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  publicSlug?: string;
+
   @ApiProperty({
     description: 'Detailed description of the homestay',
     example:
@@ -122,6 +131,16 @@ export class CreateHomestayDto {
   @IsArray()
   @IsOptional()
   amenities?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Ownership type of the homestay',
+    example: 'Owner',
+    enum: ['Owner', 'Lease Owner'],
+    default: 'Owner',
+  })
+  @IsString()
+  @IsOptional()
+  ownershipType?: string;
 
   @ApiPropertyOptional({
     description: 'Owner/User ID who owns this homestay',

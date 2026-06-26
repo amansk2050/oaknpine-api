@@ -1,6 +1,6 @@
-import { Module } from "@nestjs/common";
-import { ConfigModule, ConfigService } from "@nestjs/config";
-import { TypeOrmModule } from "@nestjs/typeorm";
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 /**
  * It is a feature module where we keep code related to database. we import the typeorm module and configure it to work with any database.
@@ -13,12 +13,12 @@ import { TypeOrmModule } from "@nestjs/typeorm";
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         return {
-          type: "postgres",
-          host: configService.get("DB_HOST"),
-          port: +configService.get("DB_PORT"),
-          username: configService.get("DB_USERNAME"),
-          password: configService.get("DB_PASSWORD"),
-          database: configService.get("DB_DATABASE"),
+          type: 'postgres',
+          host: configService.get('DB_HOST'),
+          port: +configService.get('DB_PORT'),
+          username: configService.get('DB_USERNAME'),
+          password: configService.get('DB_PASSWORD'),
+          database: configService.get('DB_DATABASE'),
           // entities: [],
           autoLoadEntities: true,
           synchronize: true,

@@ -27,7 +27,19 @@ export class HomestayService {
   async createHomestay(
     createHomestayDto: CreateHomestayDto,
   ): Promise<Homestay> {
-    const homestay = this.homestayRepository.create(createHomestayDto);
+    let publicSlug = createHomestayDto.publicSlug;
+    if (!publicSlug) {
+      const cleanSlug = createHomestayDto.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      publicSlug = `${cleanSlug}-${randomSuffix}`;
+    }
+    const homestay = this.homestayRepository.create({
+      ...createHomestayDto,
+      publicSlug,
+    });
     return await this.homestayRepository.save(homestay);
   }
 
@@ -49,6 +61,109 @@ export class HomestayService {
     }
 
     return homestay;
+  }
+
+  async findHomestayBySlug(publicSlug: string): Promise<Homestay> {
+    const homestay = await this.homestayRepository.findOne({
+      where: { publicSlug },
+      relations: ['rooms'],
+    });
+    if (!homestay) {
+      throw new NotFoundException(`Homestay with slug ${publicSlug} not found`);
+    }
+    return homestay;
+  }
+
+  async getPublicProfile(publicSlug: string): Promise<any> {
+    const homestay = await this.findHomestayBySlug(publicSlug);
+    return {
+      id: homestay.id,
+      name: homestay.name,
+      description: homestay.description,
+      address: homestay.address,
+      city: homestay.city,
+      state: homestay.state,
+      pincode: homestay.pincode,
+      latitude: homestay.latitude,
+      longitude: homestay.longitude,
+      contactNumber: homestay.contactNumber,
+      email: homestay.email,
+      images: homestay.images,
+      amenities: homestay.amenities,
+      totalRooms: homestay.totalRooms,
+      rooms: homestay.rooms.map((room) => ({
+        id: room.id,
+        roomNumber: room.roomNumber,
+        capacity: room.capacity,
+        pricePerHead: room.pricePerHead,
+        amenities: room.amenities,
+        roomType: room.roomType,
+        status: room.status,
+      })),
+    };
+  }
+
+  async getPublicAvailability(
+    publicSlug: string,
+    checkInDateStr: string,
+    checkOutDateStr: string,
+  ): Promise<any> {
+    const homestay = await this.findHomestayBySlug(publicSlug);
+
+    const checkIn = new Date(checkInDateStr);
+    const checkOut = new Date(checkOutDateStr);
+
+    if (checkOut <= checkIn) {
+      throw new BadRequestException(
+        'Check-out date must be after check-in date',
+      );
+    }
+
+    const rooms = homestay.rooms;
+    const roomIds = rooms.map((r) => r.id);
+
+    if (roomIds.length === 0) {
+      return {
+        id: homestay.id,
+        name: homestay.name,
+        rooms: [],
+      };
+    }
+
+    // Dynamic query builder mapping BookingRoom overlapping records
+    const overlappingBookingRooms = await this.roomRepository.manager
+      .createQueryBuilder('booking_rooms', 'br')
+      .innerJoin('br.booking', 'b')
+      .where('br.roomId IN (:...roomIds)', { roomIds })
+      .andWhere('b.status NOT IN (:...statuses)', {
+        statuses: ['cancelled', 'checked_out'],
+      })
+      .andWhere('(b.checkInDate < :checkOut AND b.checkOutDate > :checkIn)', {
+        checkIn,
+        checkOut,
+      })
+      .select(['br.roomId'])
+      .getRawMany();
+
+    const bookedRoomIds = overlappingBookingRooms.map((br) => br.br_roomId);
+
+    return {
+      id: homestay.id,
+      name: homestay.name,
+      rooms: rooms.map((room) => {
+        const isBooked = bookedRoomIds.includes(room.id);
+        const isAvailable = !isBooked && room.status === 'available';
+        return {
+          id: room.id,
+          roomNumber: room.roomNumber,
+          capacity: room.capacity,
+          pricePerHead: room.pricePerHead,
+          roomType: room.roomType,
+          isAvailable,
+          status: isAvailable ? 'available' : 'booked',
+        };
+      }),
+    };
   }
 
   async updateHomestay(
@@ -207,6 +322,20 @@ export class HomestayService {
       },
       order: { roomNumber: 'ASC' },
     });
+  }
+
+  async addImages(homestayId: string, images: string[]): Promise<Homestay> {
+    const homestay = await this.findHomestayById(homestayId);
+    const currentImages = homestay.images || [];
+    homestay.images = [...currentImages, ...images];
+    return await this.homestayRepository.save(homestay);
+  }
+
+  async addRoomImages(roomId: string, images: string[]): Promise<Room> {
+    const room = await this.findRoomById(roomId);
+    const currentImages = room.images || [];
+    room.images = [...currentImages, ...images];
+    return await this.roomRepository.save(room);
   }
 
   private async updateHomestayRoomCount(homestayId: string): Promise<void> {

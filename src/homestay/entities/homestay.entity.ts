@@ -27,6 +27,14 @@ export class Homestay {
   name: string;
 
   @ApiProperty({
+    description: 'Unique URL slug for public sharing',
+    example: 'mountain-view-homestay',
+    required: false,
+  })
+  @Column({ type: 'varchar', length: 100, unique: true, nullable: true })
+  publicSlug: string;
+
+  @ApiProperty({
     description: 'Detailed description of the homestay',
     example:
       'A cozy homestay with beautiful mountain views and modern amenities',
@@ -135,6 +143,15 @@ export class Homestay {
   })
   @Column({ type: 'varchar', length: 50, default: 'active' })
   status: string;
+
+  @ApiProperty({
+    description: 'Ownership type of the homestay',
+    example: 'Owner',
+    enum: ['Owner', 'Lease Owner'],
+    default: 'Owner',
+  })
+  @Column({ type: 'varchar', length: 50, default: 'Owner' })
+  ownershipType: string;
 
   @ApiProperty({
     description: 'Owner/User ID who owns this homestay',

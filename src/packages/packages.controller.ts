@@ -19,6 +19,7 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
+import { Public } from '../auth/decorators/public.decorator';
 import { PackagesService } from './packages.service';
 import {
   CreatePackageDto,
@@ -57,6 +58,261 @@ import { CustomPackageItinerary } from './entities/custom-package-itinerary.enti
 export class PackagesController {
   constructor(private readonly packagesService: PackagesService) {}
 
+  // ==================== CUSTOM PACKAGES ====================
+
+  @Post('custom')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create custom package',
+    description:
+      'Create a tailor-made package for a specific customer with custom itinerary and pricing',
+  })
+  @ApiBody({ type: CreateCustomPackageDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Custom package created',
+    type: CustomPackage,
+  })
+  createCustomPackage(@Body() dto: CreateCustomPackageDto) {
+    return this.packagesService.createCustomPackage(dto);
+  }
+
+  @Get('custom')
+  @ApiOperation({
+    summary: 'Get all custom packages',
+    description: 'Retrieve all custom packages with optional filters',
+  })
+  @ApiQuery({ type: FilterCustomPackageDto, required: false })
+  @ApiResponse({
+    status: 200,
+    description: 'List of custom packages',
+    type: [CustomPackage],
+  })
+  findAllCustomPackages(@Query() filterDto: FilterCustomPackageDto) {
+    return this.packagesService.findAllCustomPackages(filterDto);
+  }
+
+  @Get('custom/reference/:reference')
+  @ApiOperation({
+    summary: 'Get custom package by reference',
+    description: 'Retrieve a custom package using its reference code',
+  })
+  @ApiParam({
+    name: 'reference',
+    description: 'Reference code',
+    example: 'CPKG-2024-0001',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Custom package details',
+    type: CustomPackage,
+  })
+  @ApiResponse({ status: 404, description: 'Custom package not found' })
+  findCustomPackageByReference(@Param('reference') reference: string) {
+    return this.packagesService.findCustomPackageByReference(reference);
+  }
+
+  @Get('custom/:id')
+  @ApiOperation({
+    summary: 'Get custom package by ID',
+    description:
+      'Retrieve detailed custom package information including itinerary',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Custom package details',
+    type: CustomPackage,
+  })
+  @ApiResponse({ status: 404, description: 'Custom package not found' })
+  findCustomPackageById(@Param('id') id: string) {
+    return this.packagesService.findCustomPackageById(id);
+  }
+
+  @Put('custom/:id')
+  @ApiOperation({
+    summary: 'Update custom package',
+    description:
+      'Update custom package details, pricing, and customer information',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiBody({ type: UpdateCustomPackageDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Custom package updated',
+    type: CustomPackage,
+  })
+  @ApiResponse({ status: 404, description: 'Custom package not found' })
+  updateCustomPackage(
+    @Param('id') id: string,
+    @Body() dto: UpdateCustomPackageDto,
+  ) {
+    return this.packagesService.updateCustomPackage(id, dto);
+  }
+
+  @Patch('custom/:id/status')
+  @ApiOperation({
+    summary: 'Update custom package status',
+    description:
+      'Change custom package status (draft, quote_sent, negotiating, confirmed, cancelled, completed)',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        status: {
+          enum: [
+            'draft',
+            'quote_sent',
+            'negotiating',
+            'confirmed',
+            'cancelled',
+            'completed',
+          ],
+        },
+      },
+      required: ['status'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Status updated',
+    type: CustomPackage,
+  })
+  updateCustomPackageStatus(
+    @Param('id') id: string,
+    @Body('status') status: CustomPackageStatus,
+  ) {
+    return this.packagesService.updateCustomPackageStatus(id, status);
+  }
+
+  @Patch('custom/:id/send-quote')
+  @ApiOperation({
+    summary: 'Send quote to customer',
+    description: 'Set the quoted price and mark the package as quote sent',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        quotedPricePerHead: { type: 'number', example: 8500 },
+        totalQuotedPrice: { type: 'number', example: 51000 },
+        validUntil: { type: 'string', format: 'date', example: '2024-02-28' },
+      },
+      required: ['quotedPricePerHead', 'totalQuotedPrice', 'validUntil'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Quote sent', type: CustomPackage })
+  sendQuote(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      quotedPricePerHead: number;
+      totalQuotedPrice: number;
+      validUntil: string;
+    },
+  ) {
+    return this.packagesService.sendQuote(
+      id,
+      body.quotedPricePerHead,
+      body.totalQuotedPrice,
+      body.validUntil,
+    );
+  }
+
+  @Patch('custom/:id/confirm')
+  @ApiOperation({
+    summary: 'Confirm custom package',
+    description: 'Confirm the custom package with final agreed price',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { finalPrice: { type: 'number', example: 48000 } },
+      required: ['finalPrice'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Package confirmed',
+    type: CustomPackage,
+  })
+  confirmCustomPackage(
+    @Param('id') id: string,
+    @Body('finalPrice') finalPrice: number,
+  ) {
+    return this.packagesService.confirmCustomPackage(id, finalPrice);
+  }
+
+  @Delete('custom/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete custom package',
+    description: 'Permanently delete a custom package and its itinerary',
+  })
+  @ApiParam({ name: 'id', description: 'Custom package UUID' })
+  @ApiResponse({ status: 204, description: 'Custom package deleted' })
+  @ApiResponse({ status: 404, description: 'Custom package not found' })
+  deleteCustomPackage(@Param('id') id: string) {
+    return this.packagesService.deleteCustomPackage(id);
+  }
+
+  // ==================== CUSTOM ITINERARY ENDPOINTS ====================
+
+  @Post('custom/:customPackageId/itineraries')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Add itinerary to custom package',
+    description: 'Add a day-wise itinerary entry to a custom package',
+  })
+  @ApiParam({ name: 'customPackageId', description: 'Custom package UUID' })
+  @ApiBody({ type: CreateCustomPackageItineraryDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Itinerary added',
+    type: CustomPackageItinerary,
+  })
+  addCustomItinerary(
+    @Param('customPackageId') customPackageId: string,
+    @Body() dto: CreateCustomPackageItineraryDto,
+  ) {
+    return this.packagesService.addCustomItinerary(customPackageId, dto);
+  }
+
+  @Put('custom/itineraries/:itineraryId')
+  @ApiOperation({
+    summary: 'Update custom itinerary',
+    description: 'Update an existing custom itinerary entry',
+  })
+  @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
+  @ApiBody({ type: UpdateCustomPackageItineraryDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Itinerary updated',
+    type: CustomPackageItinerary,
+  })
+  updateCustomItinerary(
+    @Param('itineraryId') itineraryId: string,
+    @Body() dto: UpdateCustomPackageItineraryDto,
+  ) {
+    return this.packagesService.updateCustomItinerary(itineraryId, dto);
+  }
+
+  @Delete('custom/itineraries/:itineraryId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Delete custom itinerary',
+    description: 'Remove an itinerary entry from a custom package',
+  })
+  @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
+  @ApiResponse({ status: 204, description: 'Itinerary deleted' })
+  deleteCustomItinerary(@Param('itineraryId') itineraryId: string) {
+    return this.packagesService.deleteCustomItinerary(itineraryId);
+  }
+
   // ==================== PREDEFINED PACKAGES ====================
 
   @Post()
@@ -80,6 +336,7 @@ export class PackagesController {
     return this.packagesService.createPackage(createPackageDto);
   }
 
+  @Public()
   @Get()
   @ApiOperation({
     summary: 'Get all predefined packages',
@@ -121,6 +378,7 @@ export class PackagesController {
     return this.packagesService.getPackageStatistics();
   }
 
+  @Public()
   @Get('popular')
   @ApiOperation({
     summary: 'Get popular packages',
@@ -136,6 +394,7 @@ export class PackagesController {
     return this.packagesService.getPopularPackages(limit);
   }
 
+  @Public()
   @Get('featured')
   @ApiOperation({
     summary: 'Get featured packages',
@@ -150,6 +409,7 @@ export class PackagesController {
     return this.packagesService.getFeaturedPackages();
   }
 
+  @Public()
   @Get('code/:code')
   @ApiOperation({
     summary: 'Get package by code',
@@ -166,6 +426,7 @@ export class PackagesController {
     return this.packagesService.findPackageByCode(code);
   }
 
+  @Public()
   @Get(':id')
   @ApiOperation({
     summary: 'Get package by ID',
@@ -453,260 +714,5 @@ export class PackagesController {
   @ApiResponse({ status: 204, description: 'Inclusion deleted' })
   deleteInclusion(@Param('inclusionId') inclusionId: string) {
     return this.packagesService.deleteInclusion(inclusionId);
-  }
-
-  // ==================== CUSTOM PACKAGES ====================
-
-  @Post('custom')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({
-    summary: 'Create custom package',
-    description:
-      'Create a tailor-made package for a specific customer with custom itinerary and pricing',
-  })
-  @ApiBody({ type: CreateCustomPackageDto })
-  @ApiResponse({
-    status: 201,
-    description: 'Custom package created',
-    type: CustomPackage,
-  })
-  createCustomPackage(@Body() dto: CreateCustomPackageDto) {
-    return this.packagesService.createCustomPackage(dto);
-  }
-
-  @Get('custom')
-  @ApiOperation({
-    summary: 'Get all custom packages',
-    description: 'Retrieve all custom packages with optional filters',
-  })
-  @ApiQuery({ type: FilterCustomPackageDto, required: false })
-  @ApiResponse({
-    status: 200,
-    description: 'List of custom packages',
-    type: [CustomPackage],
-  })
-  findAllCustomPackages(@Query() filterDto: FilterCustomPackageDto) {
-    return this.packagesService.findAllCustomPackages(filterDto);
-  }
-
-  @Get('custom/reference/:reference')
-  @ApiOperation({
-    summary: 'Get custom package by reference',
-    description: 'Retrieve a custom package using its reference code',
-  })
-  @ApiParam({
-    name: 'reference',
-    description: 'Reference code',
-    example: 'CPKG-2024-0001',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Custom package details',
-    type: CustomPackage,
-  })
-  @ApiResponse({ status: 404, description: 'Custom package not found' })
-  findCustomPackageByReference(@Param('reference') reference: string) {
-    return this.packagesService.findCustomPackageByReference(reference);
-  }
-
-  @Get('custom/:id')
-  @ApiOperation({
-    summary: 'Get custom package by ID',
-    description:
-      'Retrieve detailed custom package information including itinerary',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Custom package details',
-    type: CustomPackage,
-  })
-  @ApiResponse({ status: 404, description: 'Custom package not found' })
-  findCustomPackageById(@Param('id') id: string) {
-    return this.packagesService.findCustomPackageById(id);
-  }
-
-  @Put('custom/:id')
-  @ApiOperation({
-    summary: 'Update custom package',
-    description:
-      'Update custom package details, pricing, and customer information',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiBody({ type: UpdateCustomPackageDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Custom package updated',
-    type: CustomPackage,
-  })
-  @ApiResponse({ status: 404, description: 'Custom package not found' })
-  updateCustomPackage(
-    @Param('id') id: string,
-    @Body() dto: UpdateCustomPackageDto,
-  ) {
-    return this.packagesService.updateCustomPackage(id, dto);
-  }
-
-  @Patch('custom/:id/status')
-  @ApiOperation({
-    summary: 'Update custom package status',
-    description:
-      'Change custom package status (draft, quote_sent, negotiating, confirmed, cancelled, completed)',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        status: {
-          enum: [
-            'draft',
-            'quote_sent',
-            'negotiating',
-            'confirmed',
-            'cancelled',
-            'completed',
-          ],
-        },
-      },
-      required: ['status'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Status updated',
-    type: CustomPackage,
-  })
-  updateCustomPackageStatus(
-    @Param('id') id: string,
-    @Body('status') status: CustomPackageStatus,
-  ) {
-    return this.packagesService.updateCustomPackageStatus(id, status);
-  }
-
-  @Patch('custom/:id/send-quote')
-  @ApiOperation({
-    summary: 'Send quote to customer',
-    description: 'Set the quoted price and mark the package as quote sent',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        quotedPricePerHead: { type: 'number', example: 8500 },
-        totalQuotedPrice: { type: 'number', example: 51000 },
-        validUntil: { type: 'string', format: 'date', example: '2024-02-28' },
-      },
-      required: ['quotedPricePerHead', 'totalQuotedPrice', 'validUntil'],
-    },
-  })
-  @ApiResponse({ status: 200, description: 'Quote sent', type: CustomPackage })
-  sendQuote(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      quotedPricePerHead: number;
-      totalQuotedPrice: number;
-      validUntil: string;
-    },
-  ) {
-    return this.packagesService.sendQuote(
-      id,
-      body.quotedPricePerHead,
-      body.totalQuotedPrice,
-      body.validUntil,
-    );
-  }
-
-  @Patch('custom/:id/confirm')
-  @ApiOperation({
-    summary: 'Confirm custom package',
-    description: 'Confirm the custom package with final agreed price',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: { finalPrice: { type: 'number', example: 48000 } },
-      required: ['finalPrice'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Package confirmed',
-    type: CustomPackage,
-  })
-  confirmCustomPackage(
-    @Param('id') id: string,
-    @Body('finalPrice') finalPrice: number,
-  ) {
-    return this.packagesService.confirmCustomPackage(id, finalPrice);
-  }
-
-  @Delete('custom/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({
-    summary: 'Delete custom package',
-    description: 'Permanently delete a custom package and its itinerary',
-  })
-  @ApiParam({ name: 'id', description: 'Custom package UUID' })
-  @ApiResponse({ status: 204, description: 'Custom package deleted' })
-  @ApiResponse({ status: 404, description: 'Custom package not found' })
-  deleteCustomPackage(@Param('id') id: string) {
-    return this.packagesService.deleteCustomPackage(id);
-  }
-
-  // ==================== CUSTOM ITINERARY ENDPOINTS ====================
-
-  @Post('custom/:customPackageId/itineraries')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({
-    summary: 'Add itinerary to custom package',
-    description: 'Add a day-wise itinerary entry to a custom package',
-  })
-  @ApiParam({ name: 'customPackageId', description: 'Custom package UUID' })
-  @ApiBody({ type: CreateCustomPackageItineraryDto })
-  @ApiResponse({
-    status: 201,
-    description: 'Itinerary added',
-    type: CustomPackageItinerary,
-  })
-  addCustomItinerary(
-    @Param('customPackageId') customPackageId: string,
-    @Body() dto: CreateCustomPackageItineraryDto,
-  ) {
-    return this.packagesService.addCustomItinerary(customPackageId, dto);
-  }
-
-  @Put('custom/itineraries/:itineraryId')
-  @ApiOperation({
-    summary: 'Update custom itinerary',
-    description: 'Update an existing custom itinerary entry',
-  })
-  @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
-  @ApiBody({ type: UpdateCustomPackageItineraryDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Itinerary updated',
-    type: CustomPackageItinerary,
-  })
-  updateCustomItinerary(
-    @Param('itineraryId') itineraryId: string,
-    @Body() dto: UpdateCustomPackageItineraryDto,
-  ) {
-    return this.packagesService.updateCustomItinerary(itineraryId, dto);
-  }
-
-  @Delete('custom/itineraries/:itineraryId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({
-    summary: 'Delete custom itinerary',
-    description: 'Remove an itinerary entry from a custom package',
-  })
-  @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
-  @ApiResponse({ status: 204, description: 'Itinerary deleted' })
-  deleteCustomItinerary(@Param('itineraryId') itineraryId: string) {
-    return this.packagesService.deleteCustomItinerary(itineraryId);
   }
 }

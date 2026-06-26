@@ -79,4 +79,12 @@ export class CreatePaymentDto {
   })
   @IsOptional()
   paymentDetails?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    description: 'User/Staff who recorded the payment',
+    example: '123e4567-e89b-12d3-a456-426614174010',
+  })
+  @IsString()
+  @IsOptional()
+  recordedBy?: string;
 }
