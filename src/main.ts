@@ -8,14 +8,23 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Parse allowed CORS origins from environment
+  const corsOriginEnv = process.env.CORS_ORIGIN || 'http://localhost:4000';
+  const origins = corsOriginEnv.split(',').map((o) => o.trim().replace(/\/$/, ''));
+
   // Serve uploaded files statically with CORS headers (needed for cross-origin <img> tags)
   app.use(
     '/uploads',
     (req: any, res: any, next: any) => {
-      res.header(
-        'Access-Control-Allow-Origin',
-        process.env.CORS_ORIGIN || 'http://localhost:3001',
-      );
+      const origin = req.headers.origin;
+      if (origin) {
+        const normalizedOrigin = origin.replace(/\/$/, '');
+        if (origins.includes(normalizedOrigin) || origins.includes('*')) {
+          res.header('Access-Control-Allow-Origin', origin);
+        }
+      } else {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
       res.header('Access-Control-Allow-Methods', 'GET');
       next();
     },
@@ -24,10 +33,20 @@ async function bootstrap() {
 
   // Enable CORS with environment variable configuration
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      if (origins.includes(normalizedOrigin) || origins.includes('*')) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Global validation pipe
