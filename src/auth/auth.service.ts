@@ -57,6 +57,106 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit() {
     try {
+      // 1. Create Core Auth Tables if they do not exist (better-auth compatibility)
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "user" (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            "emailVerified" BOOLEAN NOT NULL DEFAULT FALSE,
+            image TEXT,
+            "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+            "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "session" (
+            id TEXT PRIMARY KEY,
+            "expiresAt" TIMESTAMP NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+            "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+            "ipAddress" TEXT,
+            "userAgent" TEXT,
+            "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+            "activeOrganizationId" TEXT
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "account" (
+            id TEXT PRIMARY KEY,
+            "accountId" TEXT NOT NULL,
+            "providerId" TEXT NOT NULL,
+            "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+            "accessToken" TEXT,
+            "refreshToken" TEXT,
+            "idToken" TEXT,
+            "accessTokenExpiresAt" TIMESTAMP,
+            "refreshTokenExpiresAt" TIMESTAMP,
+            scope TEXT,
+            password TEXT,
+            "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+            "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "verification" (
+            id TEXT PRIMARY KEY,
+            identifier TEXT NOT NULL,
+            value TEXT NOT NULL,
+            "expiresAt" TIMESTAMP NOT NULL,
+            "createdAt" TIMESTAMP DEFAULT now(),
+            "updatedAt" TIMESTAMP DEFAULT now()
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "organization" (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE,
+            logo TEXT,
+            metadata TEXT,
+            "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "member" (
+            id TEXT PRIMARY KEY,
+            "organizationId" TEXT NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+            "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+            role TEXT NOT NULL DEFAULT 'member',
+            "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "invitation" (
+            id TEXT PRIMARY KEY,
+            "organizationId" TEXT NOT NULL REFERENCES "organization"(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            role TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            "expiresAt" TIMESTAMP NOT NULL,
+            "inviterId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE
+        );
+      `);
+
+      // Create Indexes
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session"("userId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account"("userId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "member_userId_idx" ON "member"("userId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "member_organizationId_idx" ON "member"("organizationId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "invitation_organizationId_idx" ON "invitation"("organizationId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification"(identifier)`);
+
+      this.logger.log('Database schema checked: Core auth tables and indexes ensured.');
+
+      // 2. Ensure extra columns exist (migrations/updates)
       await this.db.query(
         `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "roleType" VARCHAR(50)`,
       );
