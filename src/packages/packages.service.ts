@@ -269,8 +269,11 @@ export class PackagesService {
       );
     }
 
+    const destinationVal = updatePackageDto.destination || updatePackageDto.destinationsCovered?.[0];
+
     Object.assign(pkg, {
       ...updatePackageDto,
+      ...(destinationVal ? { destination: destinationVal } : {}),
       validFrom: updatePackageDto.validFrom
         ? new Date(updatePackageDto.validFrom)
         : pkg.validFrom,
