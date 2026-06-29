@@ -18,6 +18,7 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
+import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { RoomBookingService } from './room-booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
@@ -55,8 +56,11 @@ export class RoomBookingController {
     status: 409,
     description: 'Room not available for selected dates',
   })
-  createBooking(@Body() createBookingDto: CreateBookingDto) {
-    return this.bookingService.createBooking(createBookingDto);
+  createBooking(
+    @Body() createBookingDto: CreateBookingDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.createBooking(createBookingDto, tenantId);
   }
 
   @Get()
@@ -71,8 +75,11 @@ export class RoomBookingController {
     description: 'List of bookings',
     type: [Booking],
   })
-  findAllBookings(@Query() filterDto: FilterBookingDto) {
-    return this.bookingService.findAllBookings(filterDto);
+  findAllBookings(
+    @Query() filterDto: FilterBookingDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.findAllBookings(filterDto, tenantId);
   }
 
   @Get('statistics')
@@ -100,8 +107,11 @@ export class RoomBookingController {
       },
     },
   })
-  getBookingStatistics(@Query('homestayId') homestayId?: string) {
-    return this.bookingService.getBookingStatistics(homestayId);
+  getBookingStatistics(
+    @Query('homestayId') homestayId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.getBookingStatistics(homestayId, tenantId);
   }
 
   @Get('check-ins/today')
@@ -119,8 +129,11 @@ export class RoomBookingController {
     description: "Today's check-ins",
     type: [Booking],
   })
-  getTodayCheckIns(@Query('homestayId') homestayId?: string) {
-    return this.bookingService.getTodayCheckIns(homestayId);
+  getTodayCheckIns(
+    @Query('homestayId') homestayId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.getTodayCheckIns(homestayId, tenantId);
   }
 
   @Get('check-outs/today')
@@ -138,8 +151,11 @@ export class RoomBookingController {
     description: "Today's check-outs",
     type: [Booking],
   })
-  getTodayCheckOuts(@Query('homestayId') homestayId?: string) {
-    return this.bookingService.getTodayCheckOuts(homestayId);
+  getTodayCheckOuts(
+    @Query('homestayId') homestayId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.getTodayCheckOuts(homestayId, tenantId);
   }
 
   @Get('reference/:reference')
@@ -161,8 +177,11 @@ export class RoomBookingController {
     status: 404,
     description: 'Booking not found',
   })
-  findBookingByReference(@Param('reference') reference: string) {
-    return this.bookingService.findBookingByReference(reference);
+  findBookingByReference(
+    @Param('reference') reference: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.findBookingByReference(reference, tenantId);
   }
 
   @Get(':id')
@@ -185,8 +204,11 @@ export class RoomBookingController {
     status: 404,
     description: 'Booking not found',
   })
-  findBookingById(@Param('id') id: string) {
-    return this.bookingService.findBookingById(id);
+  findBookingById(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.findBookingById(id, tenantId);
   }
 
   @Put(':id')
@@ -216,8 +238,9 @@ export class RoomBookingController {
   updateBooking(
     @Param('id') id: string,
     @Body() updateBookingDto: UpdateBookingDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.bookingService.updateBooking(id, updateBookingDto);
+    return this.bookingService.updateBooking(id, updateBookingDto, tenantId);
   }
 
   @Patch(':id/status')
@@ -243,8 +266,9 @@ export class RoomBookingController {
   updateBookingStatus(
     @Param('id') id: string,
     @Body() updateStatusDto: UpdateBookingStatusDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.bookingService.updateBookingStatus(id, updateStatusDto);
+    return this.bookingService.updateBookingStatus(id, updateStatusDto, tenantId);
   }
 
   @Patch(':id/check-in')
@@ -267,8 +291,12 @@ export class RoomBookingController {
     status: 400,
     description: 'Only confirmed bookings can be checked in',
   })
-  checkIn(@Param('id') id: string, @Body() checkInDto: CheckInDto) {
-    return this.bookingService.checkIn(id, checkInDto);
+  checkIn(
+    @Param('id') id: string,
+    @Body() checkInDto: CheckInDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.checkIn(id, checkInDto, tenantId);
   }
 
   @Patch(':id/check-out')
@@ -291,8 +319,12 @@ export class RoomBookingController {
     status: 400,
     description: 'Only checked-in bookings can be checked out',
   })
-  checkOut(@Param('id') id: string, @Body() checkOutDto: CheckOutDto) {
-    return this.bookingService.checkOut(id, checkOutDto);
+  checkOut(
+    @Param('id') id: string,
+    @Body() checkOutDto: CheckOutDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.checkOut(id, checkOutDto, tenantId);
   }
 
   // Payment Endpoints
@@ -324,8 +356,9 @@ export class RoomBookingController {
   addPayment(
     @Param('bookingId') bookingId: string,
     @Body() createPaymentDto: CreatePaymentDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.bookingService.addPayment(bookingId, createPaymentDto);
+    return this.bookingService.addPayment(bookingId, createPaymentDto, tenantId);
   }
 
   @Get(':bookingId/payments')
@@ -347,7 +380,10 @@ export class RoomBookingController {
     status: 404,
     description: 'Booking not found',
   })
-  findPaymentsByBooking(@Param('bookingId') bookingId: string) {
-    return this.bookingService.findPaymentsByBooking(bookingId);
+  findPaymentsByBooking(
+    @Param('bookingId') bookingId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.bookingService.findPaymentsByBooking(bookingId, tenantId);
   }
 }

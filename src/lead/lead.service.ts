@@ -26,10 +26,20 @@ export class LeadService {
   ) {}
 
   // Lead CRUD Operations
-  async createLead(createLeadDto: CreateLeadDto): Promise<Lead> {
-    // Check for duplicate email or phone
+  async createLead(createLeadDto: CreateLeadDto, tenantId?: string): Promise<Lead> {
+    if (!tenantId) {
+      const [firstOrg] = await this.leadRepository.query(
+        `SELECT id FROM organization LIMIT 1`,
+      );
+      tenantId = firstOrg?.id;
+    }
+
+    // Check for duplicate email or phone within the same organization
     const existingLead = await this.leadRepository.findOne({
-      where: [{ email: createLeadDto.email }, { phone: createLeadDto.phone }],
+      where: [
+        { email: createLeadDto.email, organizationId: tenantId },
+        { phone: createLeadDto.phone, organizationId: tenantId },
+      ],
     });
 
     if (existingLead) {
@@ -40,6 +50,7 @@ export class LeadService {
 
     const lead = this.leadRepository.create({
       ...createLeadDto,
+      organizationId: tenantId,
       checkInDate: createLeadDto.checkInDate
         ? new Date(createLeadDto.checkInDate)
         : null,
@@ -52,8 +63,10 @@ export class LeadService {
     return await this.leadRepository.save(lead);
   }
 
-  async findAllLeads(filterDto?: FilterLeadDto): Promise<Lead[]> {
+  async findAllLeads(filterDto: FilterLeadDto, tenantId: string): Promise<Lead[]> {
     const query = this.leadRepository.createQueryBuilder('lead');
+
+    query.andWhere('lead.organizationId = :tenantId', { tenantId });
 
     if (filterDto?.status) {
       query.andWhere('lead.status = :status', { status: filterDto.status });
@@ -99,9 +112,9 @@ export class LeadService {
       .getMany();
   }
 
-  async findLeadById(id: string): Promise<Lead> {
+  async findLeadById(id: string, tenantId: string): Promise<Lead> {
     const lead = await this.leadRepository.findOne({
-      where: { id },
+      where: { id, organizationId: tenantId },
       relations: ['followUps'],
       order: { followUps: { createdAt: 'DESC' } },
     });
@@ -113,8 +126,12 @@ export class LeadService {
     return lead;
   }
 
-  async updateLead(id: string, updateLeadDto: UpdateLeadDto): Promise<Lead> {
-    const lead = await this.findLeadById(id);
+  async updateLead(
+    id: string,
+    updateLeadDto: UpdateLeadDto,
+    tenantId: string,
+  ): Promise<Lead> {
+    const lead = await this.findLeadById(id, tenantId);
 
     // Update dates if provided
     if (updateLeadDto.checkInDate) {
@@ -134,8 +151,9 @@ export class LeadService {
   async updateLeadStatus(
     id: string,
     updateStatusDto: UpdateLeadStatusDto,
+    tenantId: string,
   ): Promise<Lead> {
-    const lead = await this.findLeadById(id);
+    const lead = await this.findLeadById(id, tenantId);
 
     lead.status = updateStatusDto.status;
 
@@ -165,15 +183,17 @@ export class LeadService {
     return await this.leadRepository.save(lead);
   }
 
-  async deleteLead(id: string): Promise<void> {
-    const result = await this.leadRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Lead with ID ${id} not found`);
-    }
+  async deleteLead(id: string, tenantId: string): Promise<void> {
+    const lead = await this.findLeadById(id, tenantId);
+    await this.leadRepository.delete(lead.id);
   }
 
-  async assignLead(id: string, assignedTo: string): Promise<Lead> {
-    const lead = await this.findLeadById(id);
+  async assignLead(
+    id: string,
+    assignedTo: string,
+    tenantId: string,
+  ): Promise<Lead> {
+    const lead = await this.findLeadById(id, tenantId);
     lead.assignedTo = assignedTo;
     return await this.leadRepository.save(lead);
   }
@@ -182,10 +202,12 @@ export class LeadService {
   async createFollowUp(
     leadId: string,
     createFollowUpDto: CreateFollowUpDto,
+    tenantId: string,
   ): Promise<LeadFollowUp> {
-    // Use findOne directly to avoid loading relations which causes issues with save()
-    // If we load relations, TypeORM tries to unset the new follow-up because it's not in the loaded array
-    const lead = await this.leadRepository.findOne({ where: { id: leadId } });
+    // Check ownership of lead
+    const lead = await this.leadRepository.findOne({
+      where: { id: leadId, organizationId: tenantId },
+    });
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID ${leadId} not found`);
@@ -232,21 +254,21 @@ export class LeadService {
     return savedFollowUp;
   }
 
-  async findFollowUpsByLead(leadId: string): Promise<LeadFollowUp[]> {
-    await this.findLeadById(leadId);
+  async findFollowUpsByLead(leadId: string, tenantId: string): Promise<LeadFollowUp[]> {
+    await this.findLeadById(leadId, tenantId);
     return await this.followUpRepository.find({
       where: { leadId },
       order: { followUpDate: 'DESC' },
     });
   }
 
-  async findFollowUpById(followUpId: string): Promise<LeadFollowUp> {
+  async findFollowUpById(followUpId: string, tenantId: string): Promise<LeadFollowUp> {
     const followUp = await this.followUpRepository.findOne({
       where: { id: followUpId },
       relations: ['lead'],
     });
 
-    if (!followUp) {
+    if (!followUp || followUp.lead?.organizationId !== tenantId) {
       throw new NotFoundException(`Follow-up with ID ${followUpId} not found`);
     }
 
@@ -254,19 +276,21 @@ export class LeadService {
   }
 
   // Statistics and Analytics
-  async getLeadStatistics() {
-    const totalLeads = await this.leadRepository.count();
+  async getLeadStatistics(tenantId: string) {
+    const totalLeads = await this.leadRepository.count({
+      where: { organizationId: tenantId },
+    });
     const newLeads = await this.leadRepository.count({
-      where: { status: LeadStatus.NEW },
+      where: { status: LeadStatus.NEW, organizationId: tenantId },
     });
     const qualifiedLeads = await this.leadRepository.count({
-      where: { status: LeadStatus.QUALIFIED },
+      where: { status: LeadStatus.QUALIFIED, organizationId: tenantId },
     });
     const convertedLeads = await this.leadRepository.count({
-      where: { status: LeadStatus.CONVERTED },
+      where: { status: LeadStatus.CONVERTED, organizationId: tenantId },
     });
     const lostLeads = await this.leadRepository.count({
-      where: { status: LeadStatus.LOST },
+      where: { status: LeadStatus.LOST, organizationId: tenantId },
     });
 
     const conversionRate =
@@ -283,18 +307,19 @@ export class LeadService {
     };
   }
 
-  async getLeadsBySource() {
+  async getLeadsBySource(tenantId: string) {
     const result = await this.leadRepository
       .createQueryBuilder('lead')
       .select('lead.source', 'source')
       .addSelect('COUNT(*)', 'count')
+      .where('lead.organizationId = :tenantId', { tenantId })
       .groupBy('lead.source')
       .getRawMany();
 
     return result;
   }
 
-  async getUpcomingFollowUps(): Promise<Lead[]> {
+  async getUpcomingFollowUps(tenantId: string): Promise<Lead[]> {
     const today = new Date();
     const nextWeek = new Date();
     nextWeek.setDate(today.getDate() + 7);
@@ -303,18 +328,20 @@ export class LeadService {
       where: {
         nextFollowUpAt: Between(today, nextWeek),
         status: LeadStatus.QUALIFIED || LeadStatus.CONTACTED,
+        organizationId: tenantId,
       },
       order: { nextFollowUpAt: 'ASC' },
     });
   }
 
-  async getOverdueFollowUps(): Promise<Lead[]> {
+  async getOverdueFollowUps(tenantId: string): Promise<Lead[]> {
     const today = new Date();
 
     return await this.leadRepository.find({
       where: {
         nextFollowUpAt: LessThanOrEqual(today),
         status: LeadStatus.QUALIFIED || LeadStatus.CONTACTED,
+        organizationId: tenantId,
       },
       order: { nextFollowUpAt: 'ASC' },
     });

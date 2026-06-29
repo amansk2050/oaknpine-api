@@ -43,14 +43,17 @@ export class RoomBookingService {
   ) {}
 
   // Booking CRUD Operations
-  async createBooking(createBookingDto: CreateBookingDto): Promise<Booking> {
+  async createBooking(
+    createBookingDto: CreateBookingDto,
+    tenantId: string,
+  ): Promise<Booking> {
     if (!createBookingDto.leadId && !createBookingDto.guestId) {
       throw new BadRequestException(
         'Either leadId or guestId must be provided',
       );
     }
 
-    await this.homestayService.findHomestayById(createBookingDto.homestayId);
+    await this.homestayService.findHomestayById(createBookingDto.homestayId, tenantId);
 
     // Resolve guest details from lead or direct guest
     let guestName: string;
@@ -66,7 +69,7 @@ export class RoomBookingService {
         : 0;
 
     if (createBookingDto.leadId) {
-      const lead = await this.leadService.findLeadById(createBookingDto.leadId);
+      const lead = await this.leadService.findLeadById(createBookingDto.leadId, tenantId);
       guestName = lead.name;
       guestEmail = lead.email;
       guestPhone = lead.phone;
@@ -101,9 +104,9 @@ export class RoomBookingService {
 
     // Check room availability
     for (const roomDto of createBookingDto.rooms) {
-      await this.validateRoomAvailability(roomDto.roomId, checkIn, checkOut);
+      await this.validateRoomAvailability(roomDto.roomId, checkIn, checkOut, tenantId);
 
-      const room = await this.homestayService.findRoomById(roomDto.roomId);
+      const room = await this.homestayService.findRoomById(roomDto.roomId, tenantId);
       if (roomDto.numberOfGuests > room.capacity) {
         throw new BadRequestException(
           `Room ${room.roomNumber} capacity is ${room.capacity}, cannot accommodate ${roomDto.numberOfGuests} guests`,
@@ -121,7 +124,7 @@ export class RoomBookingService {
     const bookingRooms: Partial<BookingRoom>[] = [];
 
     for (const roomDto of createBookingDto.rooms) {
-      const room = await this.homestayService.findRoomById(roomDto.roomId);
+      const room = await this.homestayService.findRoomById(roomDto.roomId, tenantId);
       const roomTotal =
         room.pricePerHead * roomDto.numberOfGuests * numberOfNights;
       totalAmount += roomTotal;
@@ -147,6 +150,7 @@ export class RoomBookingService {
 
     const booking = this.bookingRepository.create({
       bookingReference,
+      organizationId: tenantId,
       leadId: createBookingDto.leadId ?? null,
       guestId: createBookingDto.guestId ?? null,
       bookingSource: createBookingDto.bookingSource ?? BookingSource.LEAD,
@@ -188,7 +192,7 @@ export class RoomBookingService {
       await this.leadService.updateLeadStatus(createBookingDto.leadId, {
         status: 'converted' as any,
         bookingId: savedBooking.id,
-      });
+      }, tenantId);
     }
 
     // Update guest booking count if direct guest
@@ -202,7 +206,7 @@ export class RoomBookingService {
     // Send confirmation email asynchronously
     if (guestEmail) {
       this.homestayService
-        .findHomestayById(createBookingDto.homestayId)
+        .findHomestayById(createBookingDto.homestayId, tenantId)
         .then(async (homestay) => {
           const checkInStr = checkIn.toISOString().split('T')[0];
           const checkOutStr = checkOut.toISOString().split('T')[0];
@@ -237,13 +241,15 @@ export class RoomBookingService {
         });
     }
 
-    const result = await this.findBookingById(savedBooking.id);
+    const result = await this.findBookingById(savedBooking.id, tenantId);
     this.eventsGateway.broadcast('booking.created', result);
     return result;
   }
 
-  async findAllBookings(filterDto?: FilterBookingDto): Promise<Booking[]> {
+  async findAllBookings(filterDto: FilterBookingDto, tenantId: string): Promise<Booking[]> {
     const query = this.bookingRepository.createQueryBuilder('booking');
+
+    query.where('booking.organizationId = :tenantId', { tenantId });
 
     if (filterDto?.status) {
       query.andWhere('booking.status = :status', { status: filterDto.status });
@@ -276,9 +282,9 @@ export class RoomBookingService {
       .getMany();
   }
 
-  async findBookingById(id: string): Promise<Booking> {
+  async findBookingById(id: string, tenantId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
-      where: { id },
+      where: { id, organizationId: tenantId },
       relations: ['rooms', 'rooms.room', 'payments', 'homestay', 'lead'],
     });
 
@@ -289,9 +295,9 @@ export class RoomBookingService {
     return booking;
   }
 
-  async findBookingByReference(reference: string): Promise<Booking> {
+  async findBookingByReference(reference: string, tenantId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
-      where: { bookingReference: reference },
+      where: { bookingReference: reference, organizationId: tenantId },
       relations: ['rooms', 'rooms.room', 'payments', 'homestay', 'lead'],
     });
 
@@ -307,8 +313,9 @@ export class RoomBookingService {
   async updateBooking(
     id: string,
     updateBookingDto: UpdateBookingDto,
+    tenantId: string,
   ): Promise<Booking> {
-    const booking = await this.findBookingById(id);
+    const booking = await this.findBookingById(id, tenantId);
 
     if (booking.status === BookingStatus.CANCELLED) {
       throw new BadRequestException('Cannot update a cancelled booking');
@@ -327,8 +334,9 @@ export class RoomBookingService {
   async updateBookingStatus(
     id: string,
     updateStatusDto: UpdateBookingStatusDto,
+    tenantId: string,
   ): Promise<Booking> {
-    const booking = await this.findBookingById(id);
+    const booking = await this.findBookingById(id, tenantId);
 
     booking.status = updateStatusDto.status;
 
@@ -350,14 +358,14 @@ export class RoomBookingService {
     }
 
     const saved = await this.bookingRepository.save(booking);
-    const updated = await this.findBookingById(saved.id);
+    const updated = await this.findBookingById(saved.id, tenantId);
     this.eventsGateway.broadcast('booking.updated', updated);
     return updated;
   }
 
   // Check-in/Check-out
-  async checkIn(id: string, checkInDto: CheckInDto): Promise<Booking> {
-    const booking = await this.findBookingById(id);
+  async checkIn(id: string, checkInDto: CheckInDto, tenantId: string): Promise<Booking> {
+    const booking = await this.findBookingById(id, tenantId);
 
     if (booking.status !== BookingStatus.CONFIRMED) {
       throw new BadRequestException(
@@ -383,13 +391,13 @@ export class RoomBookingService {
     }
 
     const saved = await this.bookingRepository.save(booking);
-    const updated = await this.findBookingById(saved.id);
+    const updated = await this.findBookingById(saved.id, tenantId);
     this.eventsGateway.broadcast('booking.updated', updated);
     return updated;
   }
 
-  async checkOut(id: string, checkOutDto: CheckOutDto): Promise<Booking> {
-    const booking = await this.findBookingById(id);
+  async checkOut(id: string, checkOutDto: CheckOutDto, tenantId: string): Promise<Booking> {
+    const booking = await this.findBookingById(id, tenantId);
 
     if (booking.status !== BookingStatus.CHECKED_IN) {
       throw new BadRequestException(
@@ -415,7 +423,7 @@ export class RoomBookingService {
     }
 
     const saved = await this.bookingRepository.save(booking);
-    const updated = await this.findBookingById(saved.id);
+    const updated = await this.findBookingById(saved.id, tenantId);
     this.eventsGateway.broadcast('booking.updated', updated);
     return updated;
   }
@@ -424,10 +432,11 @@ export class RoomBookingService {
   async addPayment(
     bookingId: string,
     createPaymentDto: CreatePaymentDto,
+    tenantId: string,
   ): Promise<Payment> {
     // Use findOne directly to avoid loading relations (specifically 'payments') which causes issues with save()
     const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId },
+      where: { id: bookingId, organizationId: tenantId },
     });
 
     if (!booking) {
@@ -467,14 +476,14 @@ export class RoomBookingService {
 
     await this.bookingRepository.save(booking);
 
-    const updatedBooking = await this.findBookingById(bookingId);
+    const updatedBooking = await this.findBookingById(bookingId, tenantId);
     this.eventsGateway.broadcast('booking.updated', updatedBooking);
 
     return savedPayment;
   }
 
-  async findPaymentsByBooking(bookingId: string): Promise<Payment[]> {
-    await this.findBookingById(bookingId);
+  async findPaymentsByBooking(bookingId: string, tenantId: string): Promise<Payment[]> {
+    await this.findBookingById(bookingId, tenantId);
     return await this.paymentRepository.find({
       where: { bookingId },
       order: { createdAt: 'DESC' },
@@ -486,9 +495,10 @@ export class RoomBookingService {
     roomId: string,
     checkIn: Date,
     checkOut: Date,
+    tenantId: string,
   ): Promise<void> {
     // Check if room exists and is available
-    const room = await this.homestayService.findRoomById(roomId);
+    const room = await this.homestayService.findRoomById(roomId, tenantId);
 
     if (room.status === 'blocked' || room.status === 'maintenance') {
       throw new ConflictException(
@@ -518,11 +528,13 @@ export class RoomBookingService {
   }
 
   // Statistics
-  async getBookingStatistics(homestayId?: string) {
+  async getBookingStatistics(homestayId: string, tenantId: string) {
     const query = this.bookingRepository.createQueryBuilder('booking');
 
+    query.where('booking.organizationId = :tenantId', { tenantId });
+
     if (homestayId) {
-      query.where('booking.homestayId = :homestayId', { homestayId });
+      query.andWhere('booking.homestayId = :homestayId', { homestayId });
     }
 
     const totalBookings = await query.getCount();
@@ -562,7 +574,7 @@ export class RoomBookingService {
     };
   }
 
-  async getTodayCheckIns(homestayId?: string): Promise<Booking[]> {
+  async getTodayCheckIns(homestayId: string, tenantId: string): Promise<Booking[]> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -570,7 +582,8 @@ export class RoomBookingService {
 
     const query = this.bookingRepository
       .createQueryBuilder('booking')
-      .where('booking.checkInDate >= :today', { today })
+      .where('booking.organizationId = :tenantId', { tenantId })
+      .andWhere('booking.checkInDate >= :today', { today })
       .andWhere('booking.checkInDate < :tomorrow', { tomorrow })
       .andWhere('booking.status = :status', {
         status: BookingStatus.CONFIRMED,
@@ -586,7 +599,7 @@ export class RoomBookingService {
       .getMany();
   }
 
-  async getTodayCheckOuts(homestayId?: string): Promise<Booking[]> {
+  async getTodayCheckOuts(homestayId: string, tenantId: string): Promise<Booking[]> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -594,7 +607,8 @@ export class RoomBookingService {
 
     const query = this.bookingRepository
       .createQueryBuilder('booking')
-      .where('booking.checkOutDate >= :today', { today })
+      .where('booking.organizationId = :tenantId', { tenantId })
+      .andWhere('booking.checkOutDate >= :today', { today })
       .andWhere('booking.checkOutDate < :tomorrow', { tomorrow })
       .andWhere('booking.status = :status', {
         status: BookingStatus.CHECKED_IN,

@@ -200,6 +200,123 @@ export class AuthService implements OnModuleInit {
          WHERE "ownerId" IS NULL AND (SELECT COUNT(*) FROM member) > 0`,
       );
       this.logger.log('Database schema checked: homestay ownerId backfilled.');
+
+      // Ensure organization_id columns are type VARCHAR(255) to support string-based organization IDs (non-UUID)
+      const tablesToAlter = [
+        'homestays',
+        'packages',
+        'custom_packages',
+        'leads',
+        'bookings',
+        'package_bookings',
+        'booking_expenses',
+      ];
+      for (const table of tablesToAlter) {
+        try {
+          await this.db.query(
+            `ALTER TABLE "${table}" ALTER COLUMN "organization_id" TYPE VARCHAR(255) USING "organization_id"::VARCHAR(255)`,
+          );
+        } catch (alterErr) {
+          this.logger.debug(`Could not alter organization_id for ${table}: ${alterErr.message}`);
+        }
+      }
+
+      // Backfill any NULL organization_id to the first available organization ID
+      const [firstOrg] = await this.db.query<any[]>(
+        `SELECT id FROM organization LIMIT 1`,
+      );
+      if (firstOrg?.id) {
+        const orgId = firstOrg.id;
+        await this.db.query(
+          `UPDATE homestays SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE packages SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE custom_packages SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE leads SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE bookings SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE package_bookings SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        await this.db.query(
+          `UPDATE booking_expenses SET "organization_id" = $1 WHERE "organization_id" IS NULL`,
+          [orgId],
+        );
+        this.logger.log('Database schema checked: all NULL organizationIds backfilled.');
+
+        try {
+          // First, link any orphaned payments
+          await this.db.query(`
+            UPDATE payments 
+            SET package_booking_id = pb.id
+            FROM package_bookings pb
+            WHERE payments.package_booking_id IS NULL 
+              AND (
+                payments.notes = 'Payment for package booking ' || pb.booking_reference
+                OR payments.notes LIKE '%' || pb.booking_reference || '%'
+              )
+          `);
+
+          // Fetch all package bookings with paid amount
+          const packageBookings = await this.db.query<any[]>(`
+            SELECT id, booking_reference as "bookingReference", paid_amount as "paidAmount", created_at as "createdAt"
+            FROM package_bookings
+            WHERE paid_amount > 0
+          `);
+
+          for (const pb of packageBookings) {
+            const payments = await this.db.query<any[]>(`
+              SELECT id, amount, "paymentReference"
+              FROM payments
+              WHERE package_booking_id = $1
+            `, [pb.id]);
+
+            const manualPayments = payments.filter(p => !p.paymentReference.startsWith('PAY-PKG-INIT-'));
+            const initPayment = payments.find(p => p.paymentReference.startsWith('PAY-PKG-INIT-'));
+
+            const sumManual = manualPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            const targetInitAmount = Number(pb.paidAmount) - sumManual;
+
+            if (targetInitAmount > 0) {
+              if (initPayment) {
+                await this.db.query(`
+                  UPDATE payments
+                  SET amount = $1
+                  WHERE id = $2
+                `, [targetInitAmount, initPayment.id]);
+              } else {
+                await this.db.query(`
+                  INSERT INTO payments (id, package_booking_id, "paymentReference", amount, "paymentMethod", "paymentType", status, "recordedBy", "paymentDate", notes)
+                  VALUES (gen_random_uuid(), $1, $2, $3, 'other', 'full', 'completed', 'system', $4, 'Initial backfilled payment')
+                `, [pb.id, `PAY-PKG-INIT-${pb.bookingReference}`, targetInitAmount, pb.createdAt]);
+              }
+            } else {
+              if (initPayment) {
+                await this.db.query(`
+                  DELETE FROM payments
+                  WHERE id = $1
+                `, [initPayment.id]);
+              }
+            }
+          }
+          this.logger.log('Database schema checked: package booking payments reconciled and healed.');
+        } catch (pbPayErr) {
+          this.logger.debug(`Could not backfill/reconcile payments for package bookings: ${pbPayErr.message}`);
+        }
+      }
     } catch (err) {
       this.logger.error(
         'Failed to run migration checks in auth onModuleInit',
@@ -912,5 +1029,28 @@ export class AuthService implements OnModuleInit {
       LEFT JOIN organization org ON org.id = m2."organizationId"
       ORDER BY "createdAt" DESC
     `);
+  }
+
+  async getPublicOrganization(orgId?: string, slug?: string): Promise<any> {
+    let rows: any[] = [];
+    if (orgId) {
+      rows = await this.db.query<any[]>(
+        `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization WHERE id = $1`,
+        [orgId],
+      );
+    } else if (slug) {
+      rows = await this.db.query<any[]>(
+        `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization WHERE slug = $1`,
+        [slug],
+      );
+    } else {
+      rows = await this.db.query<any[]>(
+        `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization LIMIT 1`,
+      );
+    }
+    if (!rows.length) {
+      return null;
+    }
+    return rows[0];
   }
 }

@@ -9,6 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { PackageBookingRoom } from './package-booking-room.entity';
+import { Payment } from '../../room-booking/entities/payment.entity';
 import { Package } from '../../packages/entities/package.entity';
 import { Lead } from '../../lead/entities/lead.entity';
 
@@ -167,10 +168,18 @@ export class PackageBooking {
   @Column({ name: 'guest_details', type: 'json', nullable: true })
   guestDetails: Record<string, any>;
 
+  @Column({ name: 'organization_id', type: 'varchar', length: 255, nullable: true })
+  organizationId: string;
+
   @OneToMany(() => PackageBookingRoom, (pbr) => pbr.packageBooking, {
     cascade: true,
   })
   packageBookingRooms: PackageBookingRoom[];
+
+  @OneToMany(() => Payment, (payment) => payment.packageBooking, {
+    cascade: true,
+  })
+  payments: Payment[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

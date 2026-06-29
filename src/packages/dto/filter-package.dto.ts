@@ -63,6 +63,16 @@ export class FilterPackageDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by organization ID' })
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by organization slug' })
+  @IsOptional()
+  @IsString()
+  organizationSlug?: string;
 }
 
 export class FilterCustomPackageDto {

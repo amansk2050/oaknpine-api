@@ -19,30 +19,68 @@ export class ExpenseService {
     private readonly packageBookingRepository: Repository<PackageBooking>,
   ) {}
 
-  async createExpense(createExpenseDto: CreateExpenseDto): Promise<BookingExpense> {
+  async createExpense(
+    createExpenseDto: CreateExpenseDto,
+    tenantId: string,
+  ): Promise<BookingExpense> {
+    if (createExpenseDto.bookingId) {
+      const booking = await this.bookingRepository.findOne({
+        where: { id: createExpenseDto.bookingId, organizationId: tenantId },
+      });
+      if (!booking) {
+        throw new NotFoundException(
+          `Booking with ID ${createExpenseDto.bookingId} not found`,
+        );
+      }
+    }
+
+    if (createExpenseDto.packageBookingId) {
+      const pkgBooking = await this.packageBookingRepository.findOne({
+        where: { id: createExpenseDto.packageBookingId, organizationId: tenantId },
+      });
+      if (!pkgBooking) {
+        throw new NotFoundException(
+          `Package Booking with ID ${createExpenseDto.packageBookingId} not found`,
+        );
+      }
+    }
+
     const expense = this.expenseRepository.create({
       ...createExpenseDto,
+      organizationId: tenantId,
       expenseDate: new Date(createExpenseDto.expenseDate),
     });
     return await this.expenseRepository.save(expense);
   }
 
-  async findExpensesByBookingId(bookingId: string): Promise<BookingExpense[]> {
+  async findExpensesByBookingId(
+    bookingId: string,
+    tenantId: string,
+  ): Promise<BookingExpense[]> {
     return await this.expenseRepository.find({
-      where: { bookingId },
+      where: { bookingId, organizationId: tenantId },
       order: { expenseDate: 'DESC' },
     });
   }
 
-  async findExpensesByPackageBookingId(packageBookingId: string): Promise<BookingExpense[]> {
+  async findExpensesByPackageBookingId(
+    packageBookingId: string,
+    tenantId: string,
+  ): Promise<BookingExpense[]> {
     return await this.expenseRepository.find({
-      where: { packageBookingId },
+      where: { packageBookingId, organizationId: tenantId },
       order: { expenseDate: 'DESC' },
     });
   }
 
-  async updateExpense(id: string, updateExpenseDto: UpdateExpenseDto): Promise<BookingExpense> {
-    const expense = await this.expenseRepository.findOne({ where: { id } });
+  async updateExpense(
+    id: string,
+    updateExpenseDto: UpdateExpenseDto,
+    tenantId: string,
+  ): Promise<BookingExpense> {
+    const expense = await this.expenseRepository.findOne({
+      where: { id, organizationId: tenantId },
+    });
     if (!expense) {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
@@ -57,17 +95,21 @@ export class ExpenseService {
     return await this.expenseRepository.save(expense);
   }
 
-  async deleteExpense(id: string): Promise<void> {
-    const result = await this.expenseRepository.delete(id);
-    if (result.affected === 0) {
+  async deleteExpense(id: string, tenantId: string): Promise<void> {
+    const expense = await this.expenseRepository.findOne({
+      where: { id, organizationId: tenantId },
+    });
+    if (!expense) {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
+    await this.expenseRepository.remove(expense);
   }
 
-  async getProfitStatistics() {
+  async getProfitStatistics(tenantId: string) {
     // 1. Calculate direct room booking revenue (excluding bookings linked to package bookings)
     const directRoomResult = await this.bookingRepository.createQueryBuilder('booking')
-      .where('booking.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
+      .where('booking.organizationId = :tenantId', { tenantId })
+      .andWhere('booking.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
       .andWhere(qb => {
         const subQuery = qb.subQuery()
           .select('pbr.booking_id')
@@ -83,7 +125,8 @@ export class ExpenseService {
 
     // 2. Calculate package bookings revenue
     const packageResult = await this.packageBookingRepository.createQueryBuilder('pb')
-      .where('pb.status != :cancelled', { cancelled: PackageBookingStatus.CANCELLED })
+      .where('pb.organizationId = :tenantId', { tenantId })
+      .andWhere('pb.status != :cancelled', { cancelled: PackageBookingStatus.CANCELLED })
       .select('SUM(pb.totalAmount)', 'sum')
       .getRawOne();
 
@@ -94,6 +137,7 @@ export class ExpenseService {
 
     // 3. Calculate sum of all expenses
     const expenseResult = await this.expenseRepository.createQueryBuilder('expense')
+      .where('expense.organizationId = :tenantId', { tenantId })
       .select('SUM(expense.amount)', 'sum')
       .getRawOne();
 

@@ -10,6 +10,7 @@ import {
   HttpStatus,
   UnauthorizedException,
   NotFoundException,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Request, Response } from 'express';
@@ -103,6 +104,22 @@ export class AuthController {
       throw new NotFoundException('No active organization found');
     }
     return this.authService.getOrganization(tenantId);
+  }
+
+  /* ── Get Public Organization Info (branding details for customer pages) ── */
+  @Public()
+  @Get('organization/public')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get details of the public organization' })
+  async getPublicOrganization(
+    @Query('orgId') orgId?: string,
+    @Query('slug') slug?: string,
+  ) {
+    const org = await this.authService.getPublicOrganization(orgId, slug);
+    if (!org) {
+      throw new NotFoundException('No organization found');
+    }
+    return org;
   }
 
   /* ── Update Active Organization ──────────────────────────────────────── */

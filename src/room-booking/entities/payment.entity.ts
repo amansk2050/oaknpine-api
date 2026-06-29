@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { ApiProperty } from '@nestjs/swagger';
 import { Booking } from './booking.entity';
+import { PackageBooking } from '../../package-booking/entities/package-booking.entity';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -48,9 +49,18 @@ export class Payment {
   @ApiProperty({
     description: 'Booking ID this payment belongs to',
     example: '123e4567-e89b-12d3-a456-426614174005',
+    required: false,
   })
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', nullable: true })
   bookingId: string;
+
+  @ApiProperty({
+    description: 'Package Booking ID this payment belongs to',
+    example: '123e4567-e89b-12d3-a456-426614174005',
+    required: false,
+  })
+  @Column({ name: 'package_booking_id', type: 'uuid', nullable: true })
+  packageBookingId: string;
 
   @ApiProperty({
     description: 'Payment reference/transaction number',
@@ -159,6 +169,18 @@ export class Payment {
   })
   @JoinColumn({ name: 'bookingId' })
   booking: Booking;
+
+  @ApiProperty({
+    description: 'Package Booking entity this payment belongs to',
+    type: () => PackageBooking,
+    required: false,
+  })
+  @ManyToOne(() => PackageBooking, (packageBooking) => packageBooking.payments, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'package_booking_id' })
+  packageBooking: PackageBooking;
 
   @ApiProperty({
     description: 'Timestamp when the payment was recorded',

@@ -38,12 +38,10 @@ export class BetterAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Allow public routes
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
 
@@ -58,41 +56,44 @@ export class BetterAuthGuard implements CanActivate {
       token = match?.[1] ?? null;
     }
 
-    if (!token) {
-      throw new UnauthorizedException('No authentication credentials provided');
-    }
+    if (token) {
+      try {
+        const sessionData = await this.authService.getSession(token);
+        if (sessionData) {
+          (request as any).user = sessionData.user;
+          (request as any).session = sessionData.session;
 
-    const sessionData = await this.authService.getSession(token);
+          let tenantId = sessionData.session.activeOrganizationId ?? null;
+          if (!tenantId) {
+            // Fallback: Check if the user belongs to any organization
+            const fallbackTenantId = await this.authService.getUserOrganization(
+              sessionData.user.id,
+            );
+            if (fallbackTenantId) {
+              tenantId = fallbackTenantId;
+              await this.authService.setActiveOrganization(token, tenantId);
+              (request as any).session.activeOrganizationId = tenantId;
+            }
+          }
+          (request as any).tenantId = tenantId;
 
-    if (!sessionData) {
-      throw new UnauthorizedException(
-        'Invalid or expired session. Please sign in again.',
-      );
-    }
-
-    // Attach to request for downstream use
-    (request as any).user = sessionData.user;
-    (request as any).session = sessionData.session;
-
-    let tenantId = sessionData.session.activeOrganizationId ?? null;
-    if (!tenantId) {
-      // Fallback: Check if the user belongs to any organization
-      const fallbackTenantId = await this.authService.getUserOrganization(
-        sessionData.user.id,
-      );
-      if (fallbackTenantId) {
-        tenantId = fallbackTenantId;
-        // Update the active session's activeOrganizationId on the DB so subsequent requests don't need database checks
-        await this.authService.setActiveOrganization(token, tenantId);
-        (request as any).session.activeOrganizationId = tenantId;
+          this.logger.debug(
+            `Auth OK (Session Resolved): ${sessionData.user.email} | tenant: ${(request as any).tenantId ?? 'none'}`,
+          );
+        }
+      } catch (err) {
+        if (!isPublic) {
+          throw err;
+        }
+        this.logger.debug(`Bypassed session error on public route: ${err.message}`);
       }
     }
 
-    (request as any).tenantId = tenantId;
+    if (isPublic) return true;
 
-    this.logger.debug(
-      `Auth OK: ${sessionData.user.email} | tenant: ${(request as any).tenantId ?? 'none'}`,
-    );
+    if (!token || !(request as any).user) {
+      throw new UnauthorizedException('No authentication credentials provided');
+    }
 
     return true;
   }

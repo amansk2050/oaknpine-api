@@ -30,6 +30,7 @@ import { Homestay } from './entities/homestay.entity';
 import { Room } from './entities/room.entity';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { BetterAuthUser } from '../auth/better-auth.service';
+import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 
 @ApiTags('Homestay Management')
 @Controller('homestay')
@@ -56,11 +57,12 @@ export class HomestayController {
   createHomestay(
     @Body() createHomestayDto: CreateHomestayDto,
     @CurrentUser() user: BetterAuthUser,
+    @CurrentTenant() tenantId: string,
   ) {
     if (user && !createHomestayDto.ownerId) {
       createHomestayDto.ownerId = user.id;
     }
-    return this.homestayService.createHomestay(createHomestayDto);
+    return this.homestayService.createHomestay(createHomestayDto, tenantId);
   }
 
   @Get()
@@ -73,8 +75,8 @@ export class HomestayController {
     description: 'List of all homestays',
     type: [Homestay],
   })
-  findAllHomestays() {
-    return this.homestayService.findAllHomestays();
+  findAllHomestays(@CurrentTenant() tenantId: string) {
+    return this.homestayService.findAllHomestays(tenantId);
   }
 
   @Get(':id')
@@ -97,8 +99,11 @@ export class HomestayController {
     status: 404,
     description: 'Homestay not found',
   })
-  findHomestayById(@Param('id') id: string) {
-    return this.homestayService.findHomestayById(id);
+  findHomestayById(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.findHomestayById(id, tenantId);
   }
 
   @Put(':id')
@@ -125,8 +130,9 @@ export class HomestayController {
   updateHomestay(
     @Param('id') id: string,
     @Body() updateHomestayDto: UpdateHomestayDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.homestayService.updateHomestay(id, updateHomestayDto);
+    return this.homestayService.updateHomestay(id, updateHomestayDto, tenantId);
   }
 
   @Delete(':id')
@@ -148,8 +154,11 @@ export class HomestayController {
     status: 404,
     description: 'Homestay not found',
   })
-  deleteHomestay(@Param('id') id: string) {
-    return this.homestayService.deleteHomestay(id);
+  deleteHomestay(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.deleteHomestay(id, tenantId);
   }
 
   @Get(':id/statistics')
@@ -185,8 +194,11 @@ export class HomestayController {
     status: 404,
     description: 'Homestay not found',
   })
-  getHomestayStatistics(@Param('id') id: string) {
-    return this.homestayService.getHomestayStatistics(id);
+  getHomestayStatistics(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.getHomestayStatistics(id, tenantId);
   }
 
   // Room Endpoints
@@ -219,8 +231,9 @@ export class HomestayController {
   addRoom(
     @Param('homestayId') homestayId: string,
     @Body() createRoomDto: CreateRoomDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.homestayService.addRoom(homestayId, createRoomDto);
+    return this.homestayService.addRoom(homestayId, createRoomDto, tenantId);
   }
 
   @Get(':homestayId/rooms')
@@ -242,8 +255,11 @@ export class HomestayController {
     status: 404,
     description: 'Homestay not found',
   })
-  findAllRoomsByHomestay(@Param('homestayId') homestayId: string) {
-    return this.homestayService.findAllRoomsByHomestay(homestayId);
+  findAllRoomsByHomestay(
+    @Param('homestayId') homestayId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.findAllRoomsByHomestay(homestayId, tenantId);
   }
 
   @Get(':homestayId/rooms/available')
@@ -266,8 +282,11 @@ export class HomestayController {
     status: 404,
     description: 'Homestay not found',
   })
-  findAvailableRooms(@Param('homestayId') homestayId: string) {
-    return this.homestayService.findAvailableRooms(homestayId);
+  findAvailableRooms(
+    @Param('homestayId') homestayId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.findAvailableRooms(homestayId, tenantId);
   }
 
   @Get('rooms/:roomId')
@@ -289,8 +308,11 @@ export class HomestayController {
     status: 404,
     description: 'Room not found',
   })
-  findRoomById(@Param('roomId') roomId: string) {
-    return this.homestayService.findRoomById(roomId);
+  findRoomById(
+    @Param('roomId') roomId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.findRoomById(roomId, tenantId);
   }
 
   @Put('rooms/:roomId')
@@ -317,8 +339,9 @@ export class HomestayController {
   updateRoom(
     @Param('roomId') roomId: string,
     @Body() updateRoomDto: UpdateRoomDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.homestayService.updateRoom(roomId, updateRoomDto);
+    return this.homestayService.updateRoom(roomId, updateRoomDto, tenantId);
   }
 
   @Delete('rooms/:roomId')
@@ -340,8 +363,11 @@ export class HomestayController {
     status: 404,
     description: 'Room not found',
   })
-  deleteRoom(@Param('roomId') roomId: string) {
-    return this.homestayService.deleteRoom(roomId);
+  deleteRoom(
+    @Param('roomId') roomId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.deleteRoom(roomId, tenantId);
   }
 
   @Patch('rooms/:roomId/block')
@@ -368,8 +394,9 @@ export class HomestayController {
   blockRoom(
     @Param('roomId') roomId: string,
     @Body() blockRoomDto: BlockRoomDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.homestayService.blockRoom(roomId, blockRoomDto);
+    return this.homestayService.blockRoom(roomId, blockRoomDto, tenantId);
   }
 
   @Patch('rooms/:roomId/unblock')
@@ -391,8 +418,11 @@ export class HomestayController {
     status: 404,
     description: 'Room not found',
   })
-  unblockRoom(@Param('roomId') roomId: string) {
-    return this.homestayService.unblockRoom(roomId);
+  unblockRoom(
+    @Param('roomId') roomId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.homestayService.unblockRoom(roomId, tenantId);
   }
 
   @Patch('rooms/:roomId/pricing')
@@ -418,8 +448,9 @@ export class HomestayController {
   updateRoomPricing(
     @Param('roomId') roomId: string,
     @Body() updatePricingDto: UpdateRoomPricingDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.homestayService.updateRoomPricing(roomId, updatePricingDto);
+    return this.homestayService.updateRoomPricing(roomId, updatePricingDto, tenantId);
   }
 
   /* ─── Public Endpoints ─── */

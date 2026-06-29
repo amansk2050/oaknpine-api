@@ -26,6 +26,7 @@ import { memoryStorage } from 'multer';
 import { Request } from 'express';
 import { UploadService } from './upload.service';
 import { HomestayService } from '../homestay/homestay.service';
+import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 
 const multerOptions = {
   storage: memoryStorage(),
@@ -114,6 +115,7 @@ export class UploadController {
     @Param('homestayId') homestayId: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Req() req: Request,
+    @CurrentTenant() tenantId: string,
   ) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
@@ -129,6 +131,7 @@ export class UploadController {
     const updatedHomestay = await this.homestayService.addImages(
       homestayId,
       urls,
+      tenantId,
     );
     return {
       message: 'Images uploaded and added successfully',
@@ -167,6 +170,7 @@ export class UploadController {
     @Param('roomId') roomId: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Req() req: Request,
+    @CurrentTenant() tenantId: string,
   ) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
@@ -179,7 +183,7 @@ export class UploadController {
       files,
       baseUrl,
     );
-    const updatedRoom = await this.homestayService.addRoomImages(roomId, urls);
+    const updatedRoom = await this.homestayService.addRoomImages(roomId, urls, tenantId);
     return {
       message: 'Images uploaded and added successfully',
       urls,

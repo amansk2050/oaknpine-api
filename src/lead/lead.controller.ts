@@ -19,6 +19,8 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
+import { Public } from '../auth/decorators/public.decorator';
+import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { LeadService } from './lead.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -34,6 +36,7 @@ export class LeadController {
   constructor(private readonly leadService: LeadService) {}
 
   // Lead CRUD Endpoints
+  @Public()
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -51,8 +54,11 @@ export class LeadController {
     status: 400,
     description: 'Invalid input or duplicate lead',
   })
-  createLead(@Body() createLeadDto: CreateLeadDto) {
-    return this.leadService.createLead(createLeadDto);
+  createLead(
+    @Body() createLeadDto: CreateLeadDto,
+    @CurrentTenant() tenantId?: string,
+  ) {
+    return this.leadService.createLead(createLeadDto, tenantId);
   }
 
   @Get()
@@ -67,8 +73,11 @@ export class LeadController {
     description: 'List of leads',
     type: [Lead],
   })
-  findAllLeads(@Query() filterDto: FilterLeadDto) {
-    return this.leadService.findAllLeads(filterDto);
+  findAllLeads(
+    @Query() filterDto: FilterLeadDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.findAllLeads(filterDto, tenantId);
   }
 
   @Get('statistics')
@@ -92,8 +101,8 @@ export class LeadController {
       },
     },
   })
-  getLeadStatistics() {
-    return this.leadService.getLeadStatistics();
+  getLeadStatistics(@CurrentTenant() tenantId: string) {
+    return this.leadService.getLeadStatistics(tenantId);
   }
 
   @Get('statistics/by-source')
@@ -112,8 +121,8 @@ export class LeadController {
       ],
     },
   })
-  getLeadsBySource() {
-    return this.leadService.getLeadsBySource();
+  getLeadsBySource(@CurrentTenant() tenantId: string) {
+    return this.leadService.getLeadsBySource(tenantId);
   }
 
   @Get('follow-ups/upcoming')
@@ -126,8 +135,8 @@ export class LeadController {
     description: 'Leads with upcoming follow-ups',
     type: [Lead],
   })
-  getUpcomingFollowUps() {
-    return this.leadService.getUpcomingFollowUps();
+  getUpcomingFollowUps(@CurrentTenant() tenantId: string) {
+    return this.leadService.getUpcomingFollowUps(tenantId);
   }
 
   @Get('follow-ups/overdue')
@@ -141,8 +150,8 @@ export class LeadController {
     description: 'Leads with overdue follow-ups',
     type: [Lead],
   })
-  getOverdueFollowUps() {
-    return this.leadService.getOverdueFollowUps();
+  getOverdueFollowUps(@CurrentTenant() tenantId: string) {
+    return this.leadService.getOverdueFollowUps(tenantId);
   }
 
   @Get(':id')
@@ -165,8 +174,11 @@ export class LeadController {
     status: 404,
     description: 'Lead not found',
   })
-  findLeadById(@Param('id') id: string) {
-    return this.leadService.findLeadById(id);
+  findLeadById(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.findLeadById(id, tenantId);
   }
 
   @Put(':id')
@@ -190,8 +202,12 @@ export class LeadController {
     status: 404,
     description: 'Lead not found',
   })
-  updateLead(@Param('id') id: string, @Body() updateLeadDto: UpdateLeadDto) {
-    return this.leadService.updateLead(id, updateLeadDto);
+  updateLead(
+    @Param('id') id: string,
+    @Body() updateLeadDto: UpdateLeadDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.updateLead(id, updateLeadDto, tenantId);
   }
 
   @Patch(':id/status')
@@ -218,8 +234,9 @@ export class LeadController {
   updateLeadStatus(
     @Param('id') id: string,
     @Body() updateStatusDto: UpdateLeadStatusDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.leadService.updateLeadStatus(id, updateStatusDto);
+    return this.leadService.updateLeadStatus(id, updateStatusDto, tenantId);
   }
 
   @Patch(':id/assign')
@@ -252,8 +269,12 @@ export class LeadController {
     status: 404,
     description: 'Lead not found',
   })
-  assignLead(@Param('id') id: string, @Body('assignedTo') assignedTo: string) {
-    return this.leadService.assignLead(id, assignedTo);
+  assignLead(
+    @Param('id') id: string,
+    @Body('assignedTo') assignedTo: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.assignLead(id, assignedTo, tenantId);
   }
 
   @Delete(':id')
@@ -275,8 +296,11 @@ export class LeadController {
     status: 404,
     description: 'Lead not found',
   })
-  deleteLead(@Param('id') id: string) {
-    return this.leadService.deleteLead(id);
+  deleteLead(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.deleteLead(id, tenantId);
   }
 
   // Follow-up Endpoints
@@ -305,8 +329,9 @@ export class LeadController {
   createFollowUp(
     @Param('leadId') leadId: string,
     @Body() createFollowUpDto: CreateFollowUpDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.leadService.createFollowUp(leadId, createFollowUpDto);
+    return this.leadService.createFollowUp(leadId, createFollowUpDto, tenantId);
   }
 
   @Get(':leadId/follow-ups')
@@ -328,8 +353,11 @@ export class LeadController {
     status: 404,
     description: 'Lead not found',
   })
-  findFollowUpsByLead(@Param('leadId') leadId: string) {
-    return this.leadService.findFollowUpsByLead(leadId);
+  findFollowUpsByLead(
+    @Param('leadId') leadId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.findFollowUpsByLead(leadId, tenantId);
   }
 
   @Get('follow-ups/:followUpId')
@@ -345,13 +373,16 @@ export class LeadController {
   @ApiResponse({
     status: 200,
     description: 'Follow-up details',
-    type: LeadFollowUp,
+    type: [LeadFollowUp],
   })
   @ApiResponse({
     status: 404,
     description: 'Follow-up not found',
   })
-  findFollowUpById(@Param('followUpId') followUpId: string) {
-    return this.leadService.findFollowUpById(followUpId);
+  findFollowUpById(
+    @Param('followUpId') followUpId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.leadService.findFollowUpById(followUpId, tenantId);
   }
 }

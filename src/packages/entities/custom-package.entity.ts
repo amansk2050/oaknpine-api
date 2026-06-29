@@ -256,6 +256,14 @@ export class CustomPackage {
   @Column({ type: 'date', nullable: true })
   quoteValidUntil: Date;
 
+  @ApiProperty({
+    description: 'Organization ID this custom package belongs to',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @Column({ name: 'organization_id', type: 'varchar', length: 255, nullable: true })
+  organizationId: string;
+
   // Relations
   @ApiProperty({
     description: 'Custom itineraries',

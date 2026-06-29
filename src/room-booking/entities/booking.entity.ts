@@ -299,6 +299,14 @@ export class Booking {
   guestDetails: Record<string, any>;
 
   @ApiProperty({
+    description: 'Organization ID this booking belongs to',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @Column({ name: 'organization_id', type: 'varchar', length: 255, nullable: true })
+  organizationId: string;
+
+  @ApiProperty({
     description: 'Lead entity associated with this booking',
     type: () => Lead,
   })

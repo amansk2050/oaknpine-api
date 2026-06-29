@@ -24,6 +24,7 @@ import { HomestayService } from '../homestay/homestay.service';
 import { LeadStatus } from '../lead/entities/lead.entity';
 import { BookingStatus } from '../room-booking/entities/booking.entity';
 import { RoomStatus } from '../homestay/entities/room.entity';
+import { Payment, PaymentStatus as RoomPaymentStatus } from '../room-booking/entities/payment.entity';
 
 @Injectable()
 export class PackageBookingService {
@@ -40,13 +41,39 @@ export class PackageBookingService {
 
   async createPackageBooking(
     createDto: CreatePackageBookingDto,
+    tenantId?: string,
   ): Promise<PackageBooking> {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      if (createDto.packageId) {
+        const pkg = await this.packageBookingRepository.manager.query(
+          `SELECT "organization_id" FROM packages WHERE id = $1`,
+          [createDto.packageId],
+        );
+        resolvedTenantId = pkg?.[0]?.organization_id;
+      }
+      if (!resolvedTenantId && createDto.leadId) {
+        const lead = await this.packageBookingRepository.manager.query(
+          `SELECT "organization_id" FROM leads WHERE id = $1`,
+          [createDto.leadId],
+        );
+        resolvedTenantId = lead?.[0]?.organization_id;
+      }
+      if (!resolvedTenantId) {
+        const [firstOrg] = await this.packageBookingRepository.query(
+          `SELECT id FROM organization LIMIT 1`,
+        );
+        resolvedTenantId = firstOrg?.id;
+      }
+    }
+
     // Validate lead exists
-    const lead = await this.leadService.findLeadById(createDto.leadId);
+    const lead = await this.leadService.findLeadById(createDto.leadId, resolvedTenantId);
 
     // Validate package exists
     const packageEntity = await this.packagesService.findPackageById(
       createDto.packageId,
+      resolvedTenantId,
     );
 
     // Calculate dates
@@ -71,6 +98,7 @@ export class PackageBookingService {
         // Validate room exists and check availability
         const room = await this.homestayService.findRoomById(
           homestayDay.roomId,
+          resolvedTenantId,
         );
 
         if (homestayDay.numberOfGuests > room.capacity) {
@@ -92,6 +120,7 @@ export class PackageBookingService {
           homestayDay.roomId,
           nightCheckIn,
           nightCheckOut,
+          resolvedTenantId,
         );
       }
     }
@@ -118,31 +147,37 @@ export class PackageBookingService {
             (tier) => tier.numberOfPersons >= createDto.numberOfAdults,
           ) || activeTiers[activeTiers.length - 1];
         if (closestTier) {
-          packagePrice = Number(closestTier.pricePerHead);
+          packagePrice =
+            Number(closestTier.totalPrice) / closestTier.numberOfPersons;
         }
       }
     }
 
-    let totalAmount = packagePrice * createDto.numberOfAdults;
+    const packageTotal = packagePrice * createDto.numberOfAdults;
 
-    // Homestay is included in package price, don't add separately
-    // But we still need to track it for booking purposes
+    // Calculate homestay amount if included
+    let homestayTotal = 0;
+    if (includesHomestay) {
+      for (const homestayDay of createDto.homestayDays) {
+        const room = await this.homestayService.findRoomById(
+          homestayDay.roomId,
+          resolvedTenantId,
+        );
+        homestayTotal += Number(room.pricePerHead) * homestayDay.numberOfGuests;
+      }
+    }
 
-    // Apply discount
+    const subTotal = packageTotal + homestayTotal;
     const discountAmount = createDto.discountAmount || 0;
-    totalAmount -= discountAmount;
-
-    // Apply tax
-    const taxPercentage = createDto.taxPercentage || 0;
-    const taxAmount = (totalAmount * taxPercentage) / 100;
-    totalAmount += taxAmount;
+    const totalAmount = subTotal - discountAmount;
 
     // Generate booking reference
     const bookingReference = await this.generateBookingReference();
 
     // Create package booking
-    const packageBooking = this.packageBookingRepository.create({
+    const booking = this.packageBookingRepository.create({
       bookingReference,
+      organizationId: resolvedTenantId,
       leadId: createDto.leadId,
       packageId: createDto.packageId,
       guestName: lead.name,
@@ -152,12 +187,11 @@ export class PackageBookingService {
       numberOfChildren: createDto.numberOfChildren || 0,
       startDate,
       endDate,
-      includesHomestay,
+      includesHomestay: createDto.includesHomestay || false,
       homestayNights: includesHomestay ? createDto.homestayDays.length : null,
       totalAmount,
       balanceAmount: totalAmount,
       discountAmount,
-      taxAmount,
       specialRequests: createDto.specialRequests,
       notes: createDto.notes,
       expectedArrivalTime: createDto.expectedArrivalTime,
@@ -168,30 +202,33 @@ export class PackageBookingService {
     });
 
     const savedBooking =
-      await this.packageBookingRepository.save(packageBooking);
+      await this.packageBookingRepository.save(booking);
 
     // Create room bookings for homestay - GROUP consecutive nights in same room
     if (includesHomestay) {
       // Group homestay days by roomId and find consecutive nights
-      const groupedByRoom = this.groupConsecutiveNightsByRoom(
+      const groupedNights = this.groupConsecutiveNightsByRoom(
         createDto.homestayDays,
       );
 
-      for (const group of groupedByRoom) {
-        const room = await this.homestayService.findRoomById(group.roomId);
+      for (const group of groupedNights) {
+        const checkIn = new Date(startDate);
+        checkIn.setDate(checkIn.getDate() + group.startNight - 1);
 
-        // Calculate overall check-in and check-out for this room group
-        const groupCheckIn = new Date(startDate);
-        groupCheckIn.setDate(groupCheckIn.getDate() + group.startNight - 1);
-        const groupCheckOut = new Date(startDate);
-        groupCheckOut.setDate(groupCheckOut.getDate() + group.endNight); // endNight is inclusive, checkout is next day
+        const checkOut = new Date(startDate);
+        checkOut.setDate(checkOut.getDate() + group.endNight);
+
+        const room = await this.homestayService.findRoomById(
+          group.roomId,
+          resolvedTenantId,
+        );
 
         // Create ONE room booking for all consecutive nights in this room
         const roomBooking = await this.roomBookingService.createBooking({
           leadId: createDto.leadId,
           homestayId: room.homestayId,
-          checkInDate: groupCheckIn.toISOString().split('T')[0],
-          checkOutDate: groupCheckOut.toISOString().split('T')[0],
+          checkInDate: checkIn.toISOString().split('T')[0],
+          checkOutDate: checkOut.toISOString().split('T')[0],
           rooms: [
             {
               roomId: group.roomId,
@@ -201,22 +238,22 @@ export class PackageBookingService {
           ],
           specialRequests: group.notes,
           notes: `Auto-created from Package Booking ${bookingReference}`,
-        });
+        }, resolvedTenantId);
 
         // Create package booking room links for each night in the group
         for (const night of group.nights) {
-          const nightCheckIn = new Date(startDate);
-          nightCheckIn.setDate(nightCheckIn.getDate() + night - 1);
-          const nightCheckOut = new Date(nightCheckIn);
-          nightCheckOut.setDate(nightCheckOut.getDate() + 1);
+          const checkInDate = new Date(startDate);
+          checkInDate.setDate(checkInDate.getDate() + night - 1);
+          const checkOutDate = new Date(checkInDate);
+          checkOutDate.setDate(checkOutDate.getDate() + 1);
 
           const packageBookingRoom = this.packageBookingRoomRepository.create({
             packageBookingId: savedBooking.id,
             bookingId: roomBooking.id, // Same booking for all nights in this group
             roomId: group.roomId,
-            checkInDate: nightCheckIn,
-            checkOutDate: nightCheckOut,
             nightNumber: night,
+            checkInDate: checkInDate,
+            checkOutDate: checkOutDate,
             pricePerNight: Number(room.pricePerHead) * group.numberOfGuests,
             isConfirmed: false,
           });
@@ -230,9 +267,9 @@ export class PackageBookingService {
     await this.leadService.updateLeadStatus(createDto.leadId, {
       status: LeadStatus.CONVERTED,
       bookingId: savedBooking.id,
-    });
+    }, resolvedTenantId);
 
-    return await this.findPackageBookingById(savedBooking.id);
+    return await this.findPackageBookingById(savedBooking.id, resolvedTenantId);
   }
 
   /**
@@ -302,9 +339,12 @@ export class PackageBookingService {
   }
 
   async findAllPackageBookings(
-    filterDto?: FilterPackageBookingDto,
+    filterDto: FilterPackageBookingDto,
+    tenantId: string,
   ): Promise<PackageBooking[]> {
     const query = this.packageBookingRepository.createQueryBuilder('pb');
+
+    query.where('pb.organizationId = :tenantId', { tenantId });
 
     if (filterDto?.packageId) {
       query.andWhere('pb.packageId = :packageId', {
@@ -340,19 +380,21 @@ export class PackageBookingService {
       .leftJoinAndSelect('pb.packageBookingRooms', 'pbr')
       .leftJoinAndSelect('pbr.room', 'room')
       .leftJoinAndSelect('pbr.booking', 'booking')
+      .leftJoinAndSelect('pb.payments', 'payments')
       .orderBy('pb.createdAt', 'DESC')
       .getMany();
   }
 
-  async findPackageBookingById(id: string): Promise<PackageBooking> {
+  async findPackageBookingById(id: string, tenantId: string): Promise<PackageBooking> {
     const booking = await this.packageBookingRepository.findOne({
-      where: { id },
+      where: { id, organizationId: tenantId },
       relations: [
         'package',
         'lead',
         'packageBookingRooms',
         'packageBookingRooms.room',
         'packageBookingRooms.booking',
+        'payments',
       ],
     });
 
@@ -365,15 +407,17 @@ export class PackageBookingService {
 
   async findPackageBookingByReference(
     reference: string,
+    tenantId: string,
   ): Promise<PackageBooking> {
     const booking = await this.packageBookingRepository.findOne({
-      where: { bookingReference: reference },
+      where: { bookingReference: reference, organizationId: tenantId },
       relations: [
         'package',
         'lead',
         'packageBookingRooms',
         'packageBookingRooms.room',
         'packageBookingRooms.booking',
+        'payments',
       ],
     });
 
@@ -389,8 +433,9 @@ export class PackageBookingService {
   async updatePackageBooking(
     id: string,
     updateDto: UpdatePackageBookingDto,
+    tenantId: string,
   ): Promise<PackageBooking> {
-    const booking = await this.findPackageBookingById(id);
+    const booking = await this.findPackageBookingById(id, tenantId);
 
     if (booking.status === PackageBookingStatus.CANCELLED) {
       throw new BadRequestException('Cannot update a cancelled booking');
@@ -417,8 +462,9 @@ export class PackageBookingService {
   async updatePackageBookingStatus(
     id: string,
     updateStatusDto: UpdatePackageBookingStatusDto,
+    tenantId: string,
   ): Promise<PackageBooking> {
-    const booking = await this.findPackageBookingById(id);
+    const booking = await this.findPackageBookingById(id, tenantId);
 
     booking.status = updateStatusDto.status;
 
@@ -432,7 +478,7 @@ export class PackageBookingService {
           await this.roomBookingService.updateBookingStatus(pbr.bookingId, {
             status: BookingStatus.CANCELLED,
             cancellationReason: `Package booking ${booking.bookingReference} cancelled`,
-          });
+          }, tenantId);
         }
       }
     }
@@ -457,8 +503,9 @@ export class PackageBookingService {
   async addPayment(
     id: string,
     paymentDto: AddPaymentDto,
+    tenantId: string,
   ): Promise<PackageBooking> {
-    const booking = await this.findPackageBookingById(id);
+    const booking = await this.findPackageBookingById(id, tenantId);
 
     if (booking.status === PackageBookingStatus.CANCELLED) {
       throw new BadRequestException('Cannot add payment to cancelled booking');
@@ -509,7 +556,7 @@ export class PackageBookingService {
       for (const roomBookingId of uniqueBookingIds) {
         try {
           const roomBooking =
-            await this.roomBookingService.findBookingById(roomBookingId);
+            await this.roomBookingService.findBookingById(roomBookingId, tenantId);
 
           // Calculate proportional amount based on room booking's share of total
           // For simplicity, we'll mark room bookings as paid if package is paid
@@ -525,7 +572,7 @@ export class PackageBookingService {
                 transactionId: paymentDto.transactionId,
                 notes: `Auto-settled from Package Booking ${booking.bookingReference}`,
                 recordedBy: paymentDto.recordedBy,
-              });
+              }, tenantId);
               settledBookings.push(roomBooking.bookingReference);
             }
           } else {
@@ -559,7 +606,7 @@ export class PackageBookingService {
                   transactionId: paymentDto.transactionId,
                   notes: `Proportional payment from Package Booking ${booking.bookingReference}`,
                   recordedBy: paymentDto.recordedBy,
-                });
+                }, tenantId);
                 settledBookings.push(roomBooking.bookingReference);
               }
             }
@@ -583,14 +630,32 @@ export class PackageBookingService {
       ? `${booking.notes}\n\n${paymentNote}`
       : paymentNote;
 
+    // Record payment in global payments table
+    const payment = new Payment();
+    payment.packageBookingId = booking.id;
+    payment.packageBooking = booking;
+    payment.amount = paymentDto.amount;
+    payment.paymentMethod = paymentDto.paymentMethod as any;
+    payment.paymentType = paymentDto.paymentType as any;
+    payment.transactionId = paymentDto.transactionId;
+    payment.paymentReference = `PAY-PKG-${Date.now()}`;
+    payment.status = RoomPaymentStatus.COMPLETED;
+    payment.notes = paymentDto.notes || `Payment for package booking ${booking.bookingReference}`;
+    payment.recordedBy = paymentDto.recordedBy;
+    payment.paymentDate = new Date();
+
+    await this.packageBookingRepository.manager.getRepository(Payment).save(payment);
+
     return await this.packageBookingRepository.save(booking);
   }
 
-  async getPackageBookingStatistics(packageId?: string) {
+  async getPackageBookingStatistics(packageId: string, tenantId: string) {
     const query = this.packageBookingRepository.createQueryBuilder('pb');
 
+    query.where('pb.organizationId = :tenantId', { tenantId });
+
     if (packageId) {
-      query.where('pb.packageId = :packageId', { packageId });
+      query.andWhere('pb.packageId = :packageId', { packageId });
     }
 
     const totalBookings = await query.getCount();
@@ -651,6 +716,7 @@ export class PackageBookingService {
 
   async getUpcomingPackageBookings(
     days: number = 7,
+    tenantId?: string,
   ): Promise<PackageBooking[]> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -658,7 +724,7 @@ export class PackageBookingService {
     const futureDate = new Date(today);
     futureDate.setDate(futureDate.getDate() + days);
 
-    return await this.packageBookingRepository
+    const query = this.packageBookingRepository
       .createQueryBuilder('pb')
       .where('pb.startDate >= :today', { today })
       .andWhere('pb.startDate <= :futureDate', { futureDate })
@@ -667,7 +733,13 @@ export class PackageBookingService {
           PackageBookingStatus.CONFIRMED,
           PackageBookingStatus.PENDING,
         ],
-      })
+      });
+
+    if (tenantId) {
+      query.andWhere('pb.organizationId = :tenantId', { tenantId });
+    }
+
+    return await query
       .leftJoinAndSelect('pb.package', 'package')
       .leftJoinAndSelect('pb.lead', 'lead')
       .orderBy('pb.startDate', 'ASC')
@@ -678,8 +750,9 @@ export class PackageBookingService {
     roomId: string,
     checkIn: Date,
     checkOut: Date,
+    tenantId: string,
   ): Promise<void> {
-    const room = await this.homestayService.findRoomById(roomId);
+    const room = await this.homestayService.findRoomById(roomId, tenantId);
 
     if (
       room.status === RoomStatus.BLOCKED ||
@@ -695,6 +768,7 @@ export class PackageBookingService {
       .createQueryBuilder('pbr')
       .innerJoin('pbr.packageBooking', 'pb')
       .where('pbr.roomId = :roomId', { roomId })
+      .andWhere('pb.organizationId = :tenantId', { tenantId })
       .andWhere('pb.status NOT IN (:...statuses)', {
         statuses: [PackageBookingStatus.CANCELLED],
       })

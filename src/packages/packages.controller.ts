@@ -20,6 +20,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { PackagesService } from './packages.service';
 import {
   CreatePackageDto,
@@ -73,8 +74,11 @@ export class PackagesController {
     description: 'Custom package created',
     type: CustomPackage,
   })
-  createCustomPackage(@Body() dto: CreateCustomPackageDto) {
-    return this.packagesService.createCustomPackage(dto);
+  createCustomPackage(
+    @Body() dto: CreateCustomPackageDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.createCustomPackage(dto, tenantId);
   }
 
   @Get('custom')
@@ -88,8 +92,11 @@ export class PackagesController {
     description: 'List of custom packages',
     type: [CustomPackage],
   })
-  findAllCustomPackages(@Query() filterDto: FilterCustomPackageDto) {
-    return this.packagesService.findAllCustomPackages(filterDto);
+  findAllCustomPackages(
+    @Query() filterDto: FilterCustomPackageDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.findAllCustomPackages(filterDto, tenantId);
   }
 
   @Get('custom/reference/:reference')
@@ -108,8 +115,11 @@ export class PackagesController {
     type: CustomPackage,
   })
   @ApiResponse({ status: 404, description: 'Custom package not found' })
-  findCustomPackageByReference(@Param('reference') reference: string) {
-    return this.packagesService.findCustomPackageByReference(reference);
+  findCustomPackageByReference(
+    @Param('reference') reference: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.findCustomPackageByReference(reference, tenantId);
   }
 
   @Get('custom/:id')
@@ -125,8 +135,11 @@ export class PackagesController {
     type: CustomPackage,
   })
   @ApiResponse({ status: 404, description: 'Custom package not found' })
-  findCustomPackageById(@Param('id') id: string) {
-    return this.packagesService.findCustomPackageById(id);
+  findCustomPackageById(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.findCustomPackageById(id, tenantId);
   }
 
   @Put('custom/:id')
@@ -146,8 +159,9 @@ export class PackagesController {
   updateCustomPackage(
     @Param('id') id: string,
     @Body() dto: UpdateCustomPackageDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updateCustomPackage(id, dto);
+    return this.packagesService.updateCustomPackage(id, dto, tenantId);
   }
 
   @Patch('custom/:id/status')
@@ -183,8 +197,9 @@ export class PackagesController {
   updateCustomPackageStatus(
     @Param('id') id: string,
     @Body('status') status: CustomPackageStatus,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updateCustomPackageStatus(id, status);
+    return this.packagesService.updateCustomPackageStatus(id, status, tenantId);
   }
 
   @Patch('custom/:id/send-quote')
@@ -213,12 +228,14 @@ export class PackagesController {
       totalQuotedPrice: number;
       validUntil: string;
     },
+    @CurrentTenant() tenantId: string,
   ) {
     return this.packagesService.sendQuote(
       id,
       body.quotedPricePerHead,
       body.totalQuotedPrice,
       body.validUntil,
+      tenantId,
     );
   }
 
@@ -243,8 +260,9 @@ export class PackagesController {
   confirmCustomPackage(
     @Param('id') id: string,
     @Body('finalPrice') finalPrice: number,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.confirmCustomPackage(id, finalPrice);
+    return this.packagesService.confirmCustomPackage(id, finalPrice, tenantId);
   }
 
   @Delete('custom/:id')
@@ -256,8 +274,11 @@ export class PackagesController {
   @ApiParam({ name: 'id', description: 'Custom package UUID' })
   @ApiResponse({ status: 204, description: 'Custom package deleted' })
   @ApiResponse({ status: 404, description: 'Custom package not found' })
-  deleteCustomPackage(@Param('id') id: string) {
-    return this.packagesService.deleteCustomPackage(id);
+  deleteCustomPackage(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deleteCustomPackage(id, tenantId);
   }
 
   // ==================== CUSTOM ITINERARY ENDPOINTS ====================
@@ -278,8 +299,9 @@ export class PackagesController {
   addCustomItinerary(
     @Param('customPackageId') customPackageId: string,
     @Body() dto: CreateCustomPackageItineraryDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.addCustomItinerary(customPackageId, dto);
+    return this.packagesService.addCustomItinerary(customPackageId, dto, tenantId);
   }
 
   @Put('custom/itineraries/:itineraryId')
@@ -297,8 +319,9 @@ export class PackagesController {
   updateCustomItinerary(
     @Param('itineraryId') itineraryId: string,
     @Body() dto: UpdateCustomPackageItineraryDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updateCustomItinerary(itineraryId, dto);
+    return this.packagesService.updateCustomItinerary(itineraryId, dto, tenantId);
   }
 
   @Delete('custom/itineraries/:itineraryId')
@@ -309,8 +332,11 @@ export class PackagesController {
   })
   @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
   @ApiResponse({ status: 204, description: 'Itinerary deleted' })
-  deleteCustomItinerary(@Param('itineraryId') itineraryId: string) {
-    return this.packagesService.deleteCustomItinerary(itineraryId);
+  deleteCustomItinerary(
+    @Param('itineraryId') itineraryId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deleteCustomItinerary(itineraryId, tenantId);
   }
 
   // ==================== PREDEFINED PACKAGES ====================
@@ -332,8 +358,11 @@ export class PackagesController {
     status: 400,
     description: 'Invalid input or price below minimum',
   })
-  createPackage(@Body() createPackageDto: CreatePackageDto) {
-    return this.packagesService.createPackage(createPackageDto);
+  createPackage(
+    @Body() createPackageDto: CreatePackageDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.createPackage(createPackageDto, tenantId);
   }
 
   @Public()
@@ -349,8 +378,11 @@ export class PackagesController {
     description: 'List of packages',
     type: [Package],
   })
-  findAllPackages(@Query() filterDto: FilterPackageDto) {
-    return this.packagesService.findAllPackages(filterDto);
+  findAllPackages(
+    @Query() filterDto: FilterPackageDto,
+    @CurrentTenant() tenantId?: string,
+  ) {
+    return this.packagesService.findAllPackages(filterDto, tenantId);
   }
 
   @Get('statistics')
@@ -374,8 +406,8 @@ export class PackagesController {
       },
     },
   })
-  getPackageStatistics() {
-    return this.packagesService.getPackageStatistics();
+  getPackageStatistics(@CurrentTenant() tenantId: string) {
+    return this.packagesService.getPackageStatistics(tenantId);
   }
 
   @Public()
@@ -390,8 +422,11 @@ export class PackagesController {
     description: 'List of popular packages',
     type: [Package],
   })
-  getPopularPackages(@Query('limit') limit?: number) {
-    return this.packagesService.getPopularPackages(limit);
+  getPopularPackages(
+    @Query('limit') limit?: number,
+    @CurrentTenant() tenantId?: string,
+  ) {
+    return this.packagesService.getPopularPackages(limit, tenantId);
   }
 
   @Public()
@@ -405,8 +440,8 @@ export class PackagesController {
     description: 'List of featured packages',
     type: [Package],
   })
-  getFeaturedPackages() {
-    return this.packagesService.getFeaturedPackages();
+  getFeaturedPackages(@CurrentTenant() tenantId?: string) {
+    return this.packagesService.getFeaturedPackages(tenantId);
   }
 
   @Public()
@@ -422,7 +457,9 @@ export class PackagesController {
   })
   @ApiResponse({ status: 200, description: 'Package details', type: Package })
   @ApiResponse({ status: 404, description: 'Package not found' })
-  findPackageByCode(@Param('code') code: string) {
+  findPackageByCode(
+    @Param('code') code: string,
+  ) {
     return this.packagesService.findPackageByCode(code);
   }
 
@@ -436,7 +473,9 @@ export class PackagesController {
   @ApiParam({ name: 'id', description: 'Package UUID' })
   @ApiResponse({ status: 200, description: 'Package details', type: Package })
   @ApiResponse({ status: 404, description: 'Package not found' })
-  findPackageById(@Param('id') id: string) {
+  findPackageById(
+    @Param('id') id: string,
+  ) {
     return this.packagesService.findPackageById(id);
   }
 
@@ -461,8 +500,9 @@ export class PackagesController {
   updatePackage(
     @Param('id') id: string,
     @Body() updatePackageDto: UpdatePackageDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updatePackage(id, updatePackageDto);
+    return this.packagesService.updatePackage(id, updatePackageDto, tenantId);
   }
 
   @Patch(':id/status')
@@ -482,8 +522,9 @@ export class PackagesController {
   updatePackageStatus(
     @Param('id') id: string,
     @Body('status') status: PackageStatus,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updatePackageStatus(id, status);
+    return this.packagesService.updatePackageStatus(id, status, tenantId);
   }
 
   @Delete(':id')
@@ -496,8 +537,11 @@ export class PackagesController {
   @ApiParam({ name: 'id', description: 'Package UUID' })
   @ApiResponse({ status: 204, description: 'Package deleted' })
   @ApiResponse({ status: 404, description: 'Package not found' })
-  deletePackage(@Param('id') id: string) {
-    return this.packagesService.deletePackage(id);
+  deletePackage(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deletePackage(id, tenantId);
   }
 
   // ==================== ITINERARY ENDPOINTS ====================
@@ -518,8 +562,9 @@ export class PackagesController {
   addItinerary(
     @Param('packageId') packageId: string,
     @Body() dto: CreatePackageItineraryDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.addItinerary(packageId, dto);
+    return this.packagesService.addItinerary(packageId, dto, tenantId);
   }
 
   @Put('itineraries/:itineraryId')
@@ -536,9 +581,10 @@ export class PackagesController {
   })
   updateItinerary(
     @Param('itineraryId') itineraryId: string,
-    @Body() dto: Partial<CreatePackageItineraryDto>,
+    @Body() dto: CreatePackageItineraryDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updateItinerary(itineraryId, dto);
+    return this.packagesService.updateItinerary(itineraryId, dto, tenantId);
   }
 
   @Delete('itineraries/:itineraryId')
@@ -549,8 +595,11 @@ export class PackagesController {
   })
   @ApiParam({ name: 'itineraryId', description: 'Itinerary UUID' })
   @ApiResponse({ status: 204, description: 'Itinerary deleted' })
-  deleteItinerary(@Param('itineraryId') itineraryId: string) {
-    return this.packagesService.deleteItinerary(itineraryId);
+  deleteItinerary(
+    @Param('itineraryId') itineraryId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deleteItinerary(itineraryId, tenantId);
   }
 
   // ==================== PRICING ENDPOINTS ====================
@@ -576,8 +625,9 @@ export class PackagesController {
   addPricing(
     @Param('packageId') packageId: string,
     @Body() dto: CreatePackagePricingDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.addPricing(packageId, dto);
+    return this.packagesService.addPricing(packageId, dto, tenantId);
   }
 
   @Put('pricing/:pricingId')
@@ -597,8 +647,9 @@ export class PackagesController {
   updatePricing(
     @Param('pricingId') pricingId: string,
     @Body() dto: UpdatePackagePricingDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updatePricing(pricingId, dto);
+    return this.packagesService.updatePricing(pricingId, dto, tenantId);
   }
 
   @Delete('pricing/:pricingId')
@@ -609,8 +660,11 @@ export class PackagesController {
   })
   @ApiParam({ name: 'pricingId', description: 'Pricing UUID' })
   @ApiResponse({ status: 204, description: 'Pricing deleted' })
-  deletePricing(@Param('pricingId') pricingId: string) {
-    return this.packagesService.deletePricing(pricingId);
+  deletePricing(
+    @Param('pricingId') pricingId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deletePricing(pricingId, tenantId);
   }
 
   @Put(':packageId/pricing/bulk')
@@ -629,8 +683,9 @@ export class PackagesController {
   bulkUpdatePricing(
     @Param('packageId') packageId: string,
     @Body() pricingTiers: CreatePackagePricingDto[],
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.bulkUpdatePricing(packageId, pricingTiers);
+    return this.packagesService.bulkUpdatePricing(packageId, pricingTiers, tenantId);
   }
 
   @Get(':packageId/pricing/:numberOfPersons')
@@ -656,10 +711,12 @@ export class PackagesController {
   getPricingForPersons(
     @Param('packageId') packageId: string,
     @Param('numberOfPersons') numberOfPersons: number,
+    @CurrentTenant() tenantId: string,
   ) {
     return this.packagesService.getPricingForPersons(
       packageId,
       numberOfPersons,
+      tenantId,
     );
   }
 
@@ -681,8 +738,9 @@ export class PackagesController {
   addInclusion(
     @Param('packageId') packageId: string,
     @Body() dto: CreatePackageInclusionDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.addInclusion(packageId, dto);
+    return this.packagesService.addInclusion(packageId, dto, tenantId);
   }
 
   @Put('inclusions/:inclusionId')
@@ -699,9 +757,10 @@ export class PackagesController {
   })
   updateInclusion(
     @Param('inclusionId') inclusionId: string,
-    @Body() dto: Partial<CreatePackageInclusionDto>,
+    @Body() dto: CreatePackageInclusionDto,
+    @CurrentTenant() tenantId: string,
   ) {
-    return this.packagesService.updateInclusion(inclusionId, dto);
+    return this.packagesService.updateInclusion(inclusionId, dto, tenantId);
   }
 
   @Delete('inclusions/:inclusionId')
@@ -712,7 +771,10 @@ export class PackagesController {
   })
   @ApiParam({ name: 'inclusionId', description: 'Inclusion UUID' })
   @ApiResponse({ status: 204, description: 'Inclusion deleted' })
-  deleteInclusion(@Param('inclusionId') inclusionId: string) {
-    return this.packagesService.deleteInclusion(inclusionId);
+  deleteInclusion(
+    @Param('inclusionId') inclusionId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.packagesService.deleteInclusion(inclusionId, tenantId);
   }
 }

@@ -26,6 +26,7 @@ export class HomestayService {
   // Homestay CRUD Operations
   async createHomestay(
     createHomestayDto: CreateHomestayDto,
+    tenantId: string,
   ): Promise<Homestay> {
     let publicSlug = createHomestayDto.publicSlug;
     if (!publicSlug) {
@@ -39,20 +40,22 @@ export class HomestayService {
     const homestay = this.homestayRepository.create({
       ...createHomestayDto,
       publicSlug,
+      organizationId: tenantId,
     });
     return await this.homestayRepository.save(homestay);
   }
 
-  async findAllHomestays(): Promise<Homestay[]> {
+  async findAllHomestays(tenantId: string): Promise<Homestay[]> {
     return await this.homestayRepository.find({
+      where: { organizationId: tenantId },
       relations: ['rooms'],
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findHomestayById(id: string): Promise<Homestay> {
+  async findHomestayById(id: string, tenantId: string): Promise<Homestay> {
     const homestay = await this.homestayRepository.findOne({
-      where: { id },
+      where: { id, organizationId: tenantId },
       relations: ['rooms'],
     });
 
@@ -169,14 +172,16 @@ export class HomestayService {
   async updateHomestay(
     id: string,
     updateHomestayDto: UpdateHomestayDto,
+    tenantId: string,
   ): Promise<Homestay> {
-    const homestay = await this.findHomestayById(id);
+    const homestay = await this.findHomestayById(id, tenantId);
     Object.assign(homestay, updateHomestayDto);
     return await this.homestayRepository.save(homestay);
   }
 
-  async deleteHomestay(id: string): Promise<void> {
-    const result = await this.homestayRepository.delete(id);
+  async deleteHomestay(id: string, tenantId: string): Promise<void> {
+    const homestay = await this.findHomestayById(id, tenantId);
+    const result = await this.homestayRepository.delete(homestay.id);
     if (result.affected === 0) {
       throw new NotFoundException(`Homestay with ID ${id} not found`);
     }
@@ -186,8 +191,9 @@ export class HomestayService {
   async addRoom(
     homestayId: string,
     createRoomDto: CreateRoomDto,
+    tenantId: string,
   ): Promise<Room> {
-    const homestay = await this.findHomestayById(homestayId);
+    const homestay = await this.findHomestayById(homestayId, tenantId);
 
     // Check for duplicate room number
     const existingRoom = await this.roomRepository.findOne({
@@ -213,21 +219,21 @@ export class HomestayService {
     return savedRoom;
   }
 
-  async findAllRoomsByHomestay(homestayId: string): Promise<Room[]> {
-    await this.findHomestayById(homestayId);
+  async findAllRoomsByHomestay(homestayId: string, tenantId: string): Promise<Room[]> {
+    await this.findHomestayById(homestayId, tenantId);
     return await this.roomRepository.find({
       where: { homestayId },
       order: { roomNumber: 'ASC' },
     });
   }
 
-  async findRoomById(roomId: string): Promise<Room> {
+  async findRoomById(roomId: string, tenantId: string): Promise<Room> {
     const room = await this.roomRepository.findOne({
       where: { id: roomId },
       relations: ['homestay'],
     });
 
-    if (!room) {
+    if (!room || room.homestay?.organizationId !== tenantId) {
       throw new NotFoundException(`Room with ID ${roomId} not found`);
     }
 
@@ -237,14 +243,15 @@ export class HomestayService {
   async updateRoom(
     roomId: string,
     updateRoomDto: UpdateRoomDto,
+    tenantId: string,
   ): Promise<Room> {
-    const room = await this.findRoomById(roomId);
+    const room = await this.findRoomById(roomId, tenantId);
     Object.assign(room, updateRoomDto);
     return await this.roomRepository.save(room);
   }
 
-  async deleteRoom(roomId: string): Promise<void> {
-    const room = await this.findRoomById(roomId);
+  async deleteRoom(roomId: string, tenantId: string): Promise<void> {
+    const room = await this.findRoomById(roomId, tenantId);
     const homestayId = room.homestayId;
 
     await this.roomRepository.delete(roomId);
@@ -252,8 +259,8 @@ export class HomestayService {
   }
 
   // Room Blocking
-  async blockRoom(roomId: string, blockRoomDto: BlockRoomDto): Promise<Room> {
-    const room = await this.findRoomById(roomId);
+  async blockRoom(roomId: string, blockRoomDto: BlockRoomDto, tenantId: string): Promise<Room> {
+    const room = await this.findRoomById(roomId, tenantId);
 
     room.status = RoomStatus.BLOCKED;
     room.blockReason = blockRoomDto.reason;
@@ -267,8 +274,8 @@ export class HomestayService {
     return await this.roomRepository.save(room);
   }
 
-  async unblockRoom(roomId: string): Promise<Room> {
-    const room = await this.findRoomById(roomId);
+  async unblockRoom(roomId: string, tenantId: string): Promise<Room> {
+    const room = await this.findRoomById(roomId, tenantId);
 
     room.status = RoomStatus.AVAILABLE;
     room.blockReason = null;
@@ -282,16 +289,17 @@ export class HomestayService {
   async updateRoomPricing(
     roomId: string,
     updatePricingDto: UpdateRoomPricingDto,
+    tenantId: string,
   ): Promise<Room> {
-    const room = await this.findRoomById(roomId);
+    const room = await this.findRoomById(roomId, tenantId);
     room.pricePerHead = updatePricingDto.pricePerHead;
     return await this.roomRepository.save(room);
   }
 
   // Statistics and Helper Methods
-  async getHomestayStatistics(homestayId: string) {
-    const homestay = await this.findHomestayById(homestayId);
-    const rooms = await this.findAllRoomsByHomestay(homestayId);
+  async getHomestayStatistics(homestayId: string, tenantId: string) {
+    const homestay = await this.findHomestayById(homestayId, tenantId);
+    const rooms = await this.findAllRoomsByHomestay(homestayId, tenantId);
 
     const viewRooms = rooms.filter((r) => r.roomType === RoomType.VIEW);
     const nonViewRooms = rooms.filter((r) => r.roomType === RoomType.NON_VIEW);
@@ -314,7 +322,8 @@ export class HomestayService {
     };
   }
 
-  async findAvailableRooms(homestayId: string): Promise<Room[]> {
+  async findAvailableRooms(homestayId: string, tenantId: string): Promise<Room[]> {
+    await this.findHomestayById(homestayId, tenantId);
     return await this.roomRepository.find({
       where: {
         homestayId,
@@ -324,15 +333,15 @@ export class HomestayService {
     });
   }
 
-  async addImages(homestayId: string, images: string[]): Promise<Homestay> {
-    const homestay = await this.findHomestayById(homestayId);
+  async addImages(homestayId: string, images: string[], tenantId: string): Promise<Homestay> {
+    const homestay = await this.findHomestayById(homestayId, tenantId);
     const currentImages = homestay.images || [];
     homestay.images = [...currentImages, ...images];
     return await this.homestayRepository.save(homestay);
   }
 
-  async addRoomImages(roomId: string, images: string[]): Promise<Room> {
-    const room = await this.findRoomById(roomId);
+  async addRoomImages(roomId: string, images: string[], tenantId: string): Promise<Room> {
+    const room = await this.findRoomById(roomId, tenantId);
     const currentImages = room.images || [];
     room.images = [...currentImages, ...images];
     return await this.roomRepository.save(room);

@@ -56,7 +56,10 @@ export class PackagesService {
 
   // ==================== PREDEFINED PACKAGES ====================
 
-  async createPackage(createPackageDto: CreatePackageDto): Promise<Package> {
+  async createPackage(
+    createPackageDto: CreatePackageDto,
+    tenantId: string,
+  ): Promise<Package> {
     // Validate min price
     if (createPackageDto.basePricePerHead < createPackageDto.minPricePerHead) {
       throw new BadRequestException(
@@ -82,6 +85,7 @@ export class PackagesService {
     const pkg = this.packageRepository.create({
       ...rest,
       packageCode,
+      organizationId: tenantId,
       validFrom: createPackageDto.validFrom
         ? new Date(createPackageDto.validFrom)
         : null,
@@ -95,29 +99,53 @@ export class PackagesService {
     // Create itineraries if provided
     if (itineraries?.length) {
       for (const itinerary of itineraries) {
-        await this.addItinerary(savedPackage.id, itinerary);
-      }
-    }
-
-    // Create pricing tiers if provided
-    if (pricingTiers?.length) {
-      for (const pricing of pricingTiers) {
-        await this.addPricing(savedPackage.id, pricing);
+        await this.addItinerary(savedPackage.id, itinerary, tenantId);
       }
     }
 
     // Create inclusions if provided
     if (inclusions?.length) {
       for (const inclusion of inclusions) {
-        await this.addInclusion(savedPackage.id, inclusion);
+        await this.addInclusion(savedPackage.id, inclusion, tenantId);
       }
     }
 
-    return await this.findPackageById(savedPackage.id);
+    // Create pricing tiers if provided
+    if (pricingTiers?.length) {
+      for (const tier of pricingTiers) {
+        await this.addPricing(savedPackage.id, tier, tenantId);
+      }
+    }
+
+    return await this.findPackageById(savedPackage.id, tenantId);
   }
 
-  async findAllPackages(filterDto?: FilterPackageDto): Promise<Package[]> {
+  async findAllPackages(
+    filterDto?: FilterPackageDto,
+    tenantId?: string,
+  ): Promise<Package[]> {
     const query = this.packageRepository.createQueryBuilder('package');
+
+    if (!tenantId) {
+      if (filterDto?.organizationId) {
+        tenantId = filterDto.organizationId;
+      } else if (filterDto?.organizationSlug) {
+        const rows = await this.packageRepository.query(
+          `SELECT id FROM organization WHERE slug = $1 LIMIT 1`,
+          [filterDto.organizationSlug],
+        );
+        tenantId = rows[0]?.id;
+      } else {
+        const [firstOrg] = await this.packageRepository.query(
+          `SELECT id FROM organization LIMIT 1`,
+        );
+        tenantId = firstOrg?.id;
+      }
+    }
+
+    if (tenantId) {
+      query.andWhere('package.organizationId = :tenantId', { tenantId });
+    }
 
     if (filterDto?.packageType) {
       query.andWhere('package.packageType = :packageType', {
@@ -171,9 +199,16 @@ export class PackagesService {
       .getMany();
   }
 
-  async findPackageById(id: string): Promise<Package> {
+  async findPackageById(id: string, tenantId?: string): Promise<Package> {
+    const where: any = { id };
+    if (tenantId) {
+      where.organizationId = tenantId;
+    } else {
+      where.status = PackageStatus.ACTIVE;
+    }
+
     const pkg = await this.packageRepository.findOne({
-      where: { id },
+      where,
       relations: ['itineraries', 'pricingTiers', 'inclusions'],
       order: {
         itineraries: { dayNumber: 'ASC' },
@@ -189,10 +224,22 @@ export class PackagesService {
     return pkg;
   }
 
-  async findPackageByCode(code: string): Promise<Package> {
+  async findPackageByCode(code: string, tenantId?: string): Promise<Package> {
+    const where: any = { packageCode: code };
+    if (tenantId) {
+      where.organizationId = tenantId;
+    } else {
+      where.status = PackageStatus.ACTIVE;
+    }
+
     const pkg = await this.packageRepository.findOne({
-      where: { packageCode: code },
+      where,
       relations: ['itineraries', 'pricingTiers', 'inclusions'],
+      order: {
+        itineraries: { dayNumber: 'ASC' },
+        pricingTiers: { numberOfPersons: 'ASC' },
+        inclusions: { displayOrder: 'ASC' },
+      },
     });
 
     if (!pkg) {
@@ -205,45 +252,44 @@ export class PackagesService {
   async updatePackage(
     id: string,
     updatePackageDto: UpdatePackageDto,
+    tenantId: string,
   ): Promise<Package> {
-    const pkg = await this.findPackageById(id);
+    const pkg = await this.findPackageById(id, tenantId);
 
-    // Validate min price if both are provided
-    const minPrice =
-      updatePackageDto.minPricePerHead ?? Number(pkg.minPricePerHead);
-    const basePrice =
-      updatePackageDto.basePricePerHead ?? Number(pkg.basePricePerHead);
-
-    if (basePrice < minPrice) {
+    if (
+      updatePackageDto.basePricePerHead !== undefined &&
+      updatePackageDto.minPricePerHead !== undefined &&
+      updatePackageDto.basePricePerHead < updatePackageDto.minPricePerHead
+    ) {
       throw new BadRequestException(
         'Base price cannot be less than minimum price',
       );
     }
 
-    // Update dates
-    if (updatePackageDto.validFrom) {
-      pkg.validFrom = new Date(updatePackageDto.validFrom);
-    }
-    if (updatePackageDto.validUntil) {
-      pkg.validUntil = new Date(updatePackageDto.validUntil);
-    }
+    Object.assign(pkg, {
+      ...updatePackageDto,
+      validFrom: updatePackageDto.validFrom
+        ? new Date(updatePackageDto.validFrom)
+        : pkg.validFrom,
+      validUntil: updatePackageDto.validUntil
+        ? new Date(updatePackageDto.validUntil)
+        : pkg.validUntil,
+    });
 
-    Object.assign(pkg, updatePackageDto);
     return await this.packageRepository.save(pkg);
   }
 
-  async deletePackage(id: string): Promise<void> {
-    const result = await this.packageRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Package with ID ${id} not found`);
-    }
+  async deletePackage(id: string, tenantId: string): Promise<void> {
+    const pkg = await this.findPackageById(id, tenantId);
+    await this.packageRepository.delete(pkg.id);
   }
 
   async updatePackageStatus(
     id: string,
     status: PackageStatus,
+    tenantId: string,
   ): Promise<Package> {
-    const pkg = await this.findPackageById(id);
+    const pkg = await this.findPackageById(id, tenantId);
     pkg.status = status;
     return await this.packageRepository.save(pkg);
   }
@@ -253,13 +299,13 @@ export class PackagesService {
   async addItinerary(
     packageId: string,
     dto: CreatePackageItineraryDto,
+    tenantId: string,
   ): Promise<PackageItinerary> {
-    await this.findPackageById(packageId);
+    await this.findPackageById(packageId, tenantId);
 
     const itinerary = this.itineraryRepository.create({
       ...dto,
       packageId,
-      displayOrder: dto.dayNumber,
     });
 
     return await this.itineraryRepository.save(itinerary);
@@ -267,12 +313,15 @@ export class PackagesService {
 
   async updateItinerary(
     itineraryId: string,
-    dto: Partial<CreatePackageItineraryDto>,
+    dto: CreatePackageItineraryDto,
+    tenantId: string,
   ): Promise<PackageItinerary> {
     const itinerary = await this.itineraryRepository.findOne({
       where: { id: itineraryId },
+      relations: ['package'],
     });
-    if (!itinerary) {
+
+    if (!itinerary || itinerary.package?.organizationId !== tenantId) {
       throw new NotFoundException(`Itinerary with ID ${itineraryId} not found`);
     }
 
@@ -280,11 +329,17 @@ export class PackagesService {
     return await this.itineraryRepository.save(itinerary);
   }
 
-  async deleteItinerary(itineraryId: string): Promise<void> {
-    const result = await this.itineraryRepository.delete(itineraryId);
-    if (result.affected === 0) {
+  async deleteItinerary(itineraryId: string, tenantId: string): Promise<void> {
+    const itinerary = await this.itineraryRepository.findOne({
+      where: { id: itineraryId },
+      relations: ['package'],
+    });
+
+    if (!itinerary || itinerary.package?.organizationId !== tenantId) {
       throw new NotFoundException(`Itinerary with ID ${itineraryId} not found`);
     }
+
+    await this.itineraryRepository.delete(itineraryId);
   }
 
   // ==================== PRICING OPERATIONS ====================
@@ -292,41 +347,36 @@ export class PackagesService {
   async addPricing(
     packageId: string,
     dto: CreatePackagePricingDto,
+    tenantId: string,
   ): Promise<PackagePricing> {
-    const pkg = await this.findPackageById(packageId);
+    const pkg = await this.findPackageById(packageId, tenantId);
 
-    // Validate against package min price
-    if (dto.pricePerHead < Number(pkg.minPricePerHead)) {
+    // Validate floor price constraint
+    if (dto.pricePerHead < pkg.minPricePerHead) {
       throw new BadRequestException(
-        `Price per head (${dto.pricePerHead}) cannot be less than package minimum price (${pkg.minPricePerHead})`,
+        `Price per head cannot be less than minimum floor price (₹${pkg.minPricePerHead})`,
       );
     }
 
-    // Check for duplicate pricing tier
+    // Check if group size already exists
     const existing = await this.pricingRepository.findOne({
       where: {
         packageId,
         numberOfPersons: dto.numberOfPersons,
-        roomType: dto.roomType,
-        seasonType: dto.seasonType,
+        roomType: dto.roomType as any,
+        seasonType: dto.seasonType as any,
       },
     });
 
     if (existing) {
       throw new BadRequestException(
-        `Pricing for ${dto.numberOfPersons} persons with ${dto.roomType} room in ${dto.seasonType} season already exists`,
+        `Pricing tier for ${dto.numberOfPersons} persons already exists`,
       );
     }
-
-    // Always set totalPrice before saving
-    const totalPrice = (dto.pricePerHead ?? 0) * (dto.numberOfPersons ?? 0);
 
     const pricing = this.pricingRepository.create({
       ...dto,
       packageId,
-      totalPrice,
-      validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
-      validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
     });
 
     return await this.pricingRepository.save(pricing);
@@ -335,82 +385,83 @@ export class PackagesService {
   async updatePricing(
     pricingId: string,
     dto: UpdatePackagePricingDto,
+    tenantId: string,
   ): Promise<PackagePricing> {
     const pricing = await this.pricingRepository.findOne({
       where: { id: pricingId },
       relations: ['package'],
     });
 
-    if (!pricing) {
-      throw new NotFoundException(`Pricing with ID ${pricingId} not found`);
+    if (!pricing || pricing.package?.organizationId !== tenantId) {
+      throw new NotFoundException(`Pricing tier with ID ${pricingId} not found`);
     }
 
-    // Validate against package min price
-    const newPrice = dto.pricePerHead ?? Number(pricing.pricePerHead);
-    if (newPrice < Number(pricing.package.minPricePerHead)) {
+    // Validate floor price constraint
+    if (dto.pricePerHead < pricing.package.minPricePerHead) {
       throw new BadRequestException(
-        `Price per head (${newPrice}) cannot be less than package minimum price (${pricing.package.minPricePerHead})`,
+        `Price per head cannot be less than minimum floor price (₹${pricing.package.minPricePerHead})`,
       );
     }
 
-    if (dto.validFrom) {
-      pricing.validFrom = new Date(dto.validFrom);
-    }
-    if (dto.validUntil) {
-      pricing.validUntil = new Date(dto.validUntil);
-    }
-
     Object.assign(pricing, dto);
-
-    // Recalculate total
-    pricing.totalPrice = Number(pricing.pricePerHead) * pricing.numberOfPersons;
-
     return await this.pricingRepository.save(pricing);
   }
 
-  async deletePricing(pricingId: string): Promise<void> {
-    const result = await this.pricingRepository.delete(pricingId);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Pricing with ID ${pricingId} not found`);
+  async deletePricing(pricingId: string, tenantId: string): Promise<void> {
+    const pricing = await this.pricingRepository.findOne({
+      where: { id: pricingId },
+      relations: ['package'],
+    });
+
+    if (!pricing || pricing.package?.organizationId !== tenantId) {
+      throw new NotFoundException(`Pricing tier with ID ${pricingId} not found`);
     }
+
+    await this.pricingRepository.delete(pricingId);
   }
 
   async bulkUpdatePricing(
     packageId: string,
-    pricingTiers: CreatePackagePricingDto[],
+    tiers: CreatePackagePricingDto[],
+    tenantId: string,
   ): Promise<PackagePricing[]> {
-    // Delete existing pricing
-    await this.pricingRepository.delete({ packageId });
+    const pkg = await this.findPackageById(packageId, tenantId);
 
-    // Add new pricing
-    const results: PackagePricing[] = [];
-    for (const tier of pricingTiers) {
-      const pricing = await this.addPricing(packageId, tier);
-      results.push(pricing);
+    // Validate floor price constraint for all tiers
+    for (const tier of tiers) {
+      if (tier.pricePerHead < pkg.minPricePerHead) {
+        throw new BadRequestException(
+          `Price per head for ${tier.numberOfPersons} Pax cannot be less than floor price (₹${pkg.minPricePerHead})`,
+        );
+      }
     }
 
-    return results;
+    // Delete existing pricing tiers
+    await this.pricingRepository.delete({ packageId });
+
+    // Save new pricing tiers
+    const newTiers = [];
+    for (const tier of tiers) {
+      const pricing = this.pricingRepository.create({
+        ...tier,
+        packageId,
+      });
+      newTiers.push(await this.pricingRepository.save(pricing));
+    }
+
+    return newTiers;
   }
 
   async getPricingForPersons(
     packageId: string,
-    numberOfPersons: number,
-  ): Promise<PackagePricing> {
-    const pricing = await this.pricingRepository.findOne({
-      where: {
-        packageId,
-        numberOfPersons,
-        isActive: true,
-      },
+    persons: number,
+    tenantId: string,
+  ): Promise<PackagePricing[]> {
+    await this.findPackageById(packageId, tenantId);
+
+    return await this.pricingRepository.find({
+      where: { packageId, numberOfPersons: persons },
     });
-
-    if (!pricing) {
-      throw new NotFoundException(
-        `No pricing available for ${numberOfPersons} persons in this package`,
-      );
-    }
-
-    return pricing;
   }
 
   // ==================== INCLUSION OPERATIONS ====================
@@ -418,8 +469,9 @@ export class PackagesService {
   async addInclusion(
     packageId: string,
     dto: CreatePackageInclusionDto,
+    tenantId: string,
   ): Promise<PackageInclusion> {
-    await this.findPackageById(packageId);
+    await this.findPackageById(packageId, tenantId);
 
     const inclusion = this.inclusionRepository.create({
       ...dto,
@@ -431,12 +483,15 @@ export class PackagesService {
 
   async updateInclusion(
     inclusionId: string,
-    dto: Partial<CreatePackageInclusionDto>,
+    dto: CreatePackageInclusionDto,
+    tenantId: string,
   ): Promise<PackageInclusion> {
     const inclusion = await this.inclusionRepository.findOne({
       where: { id: inclusionId },
+      relations: ['package'],
     });
-    if (!inclusion) {
+
+    if (!inclusion || inclusion.package?.organizationId !== tenantId) {
       throw new NotFoundException(`Inclusion with ID ${inclusionId} not found`);
     }
 
@@ -444,45 +499,56 @@ export class PackagesService {
     return await this.inclusionRepository.save(inclusion);
   }
 
-  async deleteInclusion(inclusionId: string): Promise<void> {
-    const result = await this.inclusionRepository.delete(inclusionId);
-    if (result.affected === 0) {
+  async deleteInclusion(inclusionId: string, tenantId: string): Promise<void> {
+    const inclusion = await this.inclusionRepository.findOne({
+      where: { id: inclusionId },
+      relations: ['package'],
+    });
+
+    if (!inclusion || inclusion.package?.organizationId !== tenantId) {
       throw new NotFoundException(`Inclusion with ID ${inclusionId} not found`);
     }
+
+    await this.inclusionRepository.delete(inclusionId);
   }
 
   // ==================== CUSTOM PACKAGES ====================
 
   async createCustomPackage(
     dto: CreateCustomPackageDto,
+    tenantId: string,
   ): Promise<CustomPackage> {
-    // Generate reference code
     const referenceCode = await this.generateCustomPackageReference();
 
-    const customPackage = this.customPackageRepository.create({
-      ...dto,
+    const { itineraries, ...rest } = dto;
+
+    const customPkg = this.customPackageRepository.create({
+      ...rest,
       referenceCode,
-      travelStartDate: new Date(dto.travelStartDate),
-      travelEndDate: new Date(dto.travelEndDate),
-      status: CustomPackageStatus.DRAFT,
+      organizationId: tenantId,
+      travelStartDate: dto.travelStartDate ? new Date(dto.travelStartDate) : null,
+      travelEndDate: dto.travelEndDate ? new Date(dto.travelEndDate) : null,
+      quoteValidUntil: dto.quoteValidUntil ? new Date(dto.quoteValidUntil) : null,
     });
 
-    const savedPackage = await this.customPackageRepository.save(customPackage);
+    const savedPackage = await this.customPackageRepository.save(customPkg);
 
-    // Create itineraries if provided
-    if (dto.itineraries?.length) {
-      for (const itinerary of dto.itineraries) {
-        await this.addCustomItinerary(savedPackage.id, itinerary);
+    if (itineraries?.length) {
+      for (const itinerary of itineraries) {
+        await this.addCustomItinerary(savedPackage.id, itinerary, tenantId);
       }
     }
 
-    return await this.findCustomPackageById(savedPackage.id);
+    return await this.findCustomPackageById(savedPackage.id, tenantId);
   }
 
   async findAllCustomPackages(
-    filterDto?: FilterCustomPackageDto,
+    filterDto: FilterCustomPackageDto,
+    tenantId: string,
   ): Promise<CustomPackage[]> {
     const query = this.customPackageRepository.createQueryBuilder('cp');
+
+    query.andWhere('cp.organizationId = :tenantId', { tenantId });
 
     if (filterDto?.status) {
       query.andWhere('cp.status = :status', { status: filterDto.status });
@@ -507,9 +573,9 @@ export class PackagesService {
       .getMany();
   }
 
-  async findCustomPackageById(id: string): Promise<CustomPackage> {
+  async findCustomPackageById(id: string, tenantId: string): Promise<CustomPackage> {
     const customPackage = await this.customPackageRepository.findOne({
-      where: { id },
+      where: { id, organizationId: tenantId },
       relations: ['itineraries'],
       order: {
         itineraries: { dayNumber: 'ASC' },
@@ -525,9 +591,10 @@ export class PackagesService {
 
   async findCustomPackageByReference(
     reference: string,
+    tenantId: string,
   ): Promise<CustomPackage> {
     const customPackage = await this.customPackageRepository.findOne({
-      where: { referenceCode: reference },
+      where: { referenceCode: reference, organizationId: tenantId },
       relations: ['itineraries'],
     });
 
@@ -543,8 +610,9 @@ export class PackagesService {
   async updateCustomPackage(
     id: string,
     dto: UpdateCustomPackageDto,
+    tenantId: string,
   ): Promise<CustomPackage> {
-    const customPackage = await this.findCustomPackageById(id);
+    const customPackage = await this.findCustomPackageById(id, tenantId);
 
     if (dto.travelStartDate) {
       customPackage.travelStartDate = new Date(dto.travelStartDate);
@@ -563,8 +631,9 @@ export class PackagesService {
   async updateCustomPackageStatus(
     id: string,
     status: CustomPackageStatus,
+    tenantId: string,
   ): Promise<CustomPackage> {
-    const customPackage = await this.findCustomPackageById(id);
+    const customPackage = await this.findCustomPackageById(id, tenantId);
     customPackage.status = status;
     return await this.customPackageRepository.save(customPackage);
   }
@@ -574,8 +643,9 @@ export class PackagesService {
     quotedPricePerHead: number,
     totalQuotedPrice: number,
     validUntil: string,
+    tenantId: string,
   ): Promise<CustomPackage> {
-    const customPackage = await this.findCustomPackageById(id);
+    const customPackage = await this.findCustomPackageById(id, tenantId);
 
     customPackage.quotedPricePerHead = quotedPricePerHead;
     customPackage.totalQuotedPrice = totalQuotedPrice;
@@ -588,8 +658,9 @@ export class PackagesService {
   async confirmCustomPackage(
     id: string,
     finalPrice: number,
+    tenantId: string,
   ): Promise<CustomPackage> {
-    const customPackage = await this.findCustomPackageById(id);
+    const customPackage = await this.findCustomPackageById(id, tenantId);
 
     customPackage.finalPrice = finalPrice;
     customPackage.discountAmount =
@@ -599,19 +670,18 @@ export class PackagesService {
     return await this.customPackageRepository.save(customPackage);
   }
 
-  async deleteCustomPackage(id: string): Promise<void> {
-    const result = await this.customPackageRepository.delete(id);
-    if (result.affected === 0) {
-      throw new NotFoundException(`Custom package with ID ${id} not found`);
-    }
+  async deleteCustomPackage(id: string, tenantId: string): Promise<void> {
+    const customPackage = await this.findCustomPackageById(id, tenantId);
+    await this.customPackageRepository.delete(customPackage.id);
   }
 
   // Custom Itinerary Operations
   async addCustomItinerary(
     customPackageId: string,
     dto: CreateCustomPackageItineraryDto,
+    tenantId: string,
   ): Promise<CustomPackageItinerary> {
-    await this.findCustomPackageById(customPackageId);
+    await this.findCustomPackageById(customPackageId, tenantId);
 
     const itinerary = this.customItineraryRepository.create({
       ...dto,
@@ -626,11 +696,14 @@ export class PackagesService {
   async updateCustomItinerary(
     itineraryId: string,
     dto: UpdateCustomPackageItineraryDto,
+    tenantId: string,
   ): Promise<CustomPackageItinerary> {
     const itinerary = await this.customItineraryRepository.findOne({
       where: { id: itineraryId },
+      relations: ['customPackage'],
     });
-    if (!itinerary) {
+
+    if (!itinerary || itinerary.customPackage?.organizationId !== tenantId) {
       throw new NotFoundException(
         `Custom itinerary with ID ${itineraryId} not found`,
       );
@@ -644,41 +717,47 @@ export class PackagesService {
     return await this.customItineraryRepository.save(itinerary);
   }
 
-  async deleteCustomItinerary(itineraryId: string): Promise<void> {
-    const result = await this.customItineraryRepository.delete(itineraryId);
-    if (result.affected === 0) {
+  async deleteCustomItinerary(itineraryId: string, tenantId: string): Promise<void> {
+    const itinerary = await this.customItineraryRepository.findOne({
+      where: { id: itineraryId },
+      relations: ['customPackage'],
+    });
+
+    if (!itinerary || itinerary.customPackage?.organizationId !== tenantId) {
       throw new NotFoundException(
         `Custom itinerary with ID ${itineraryId} not found`,
       );
     }
+
+    await this.customItineraryRepository.delete(itineraryId);
   }
 
   // ==================== STATISTICS ====================
 
-  async getPackageStatistics() {
-    const totalPackages = await this.packageRepository.count();
+  async getPackageStatistics(tenantId: string) {
+    const totalPackages = await this.packageRepository.count({ where: { organizationId: tenantId } });
     const activePackages = await this.packageRepository.count({
-      where: { status: PackageStatus.ACTIVE },
+      where: { status: PackageStatus.ACTIVE, organizationId: tenantId },
     });
     const draftPackages = await this.packageRepository.count({
-      where: { status: PackageStatus.DRAFT },
+      where: { status: PackageStatus.DRAFT, organizationId: tenantId },
     });
     const featuredPackages = await this.packageRepository.count({
-      where: { isFeatured: true },
+      where: { isFeatured: true, organizationId: tenantId },
     });
 
-    const totalCustomPackages = await this.customPackageRepository.count();
+    const totalCustomPackages = await this.customPackageRepository.count({ where: { organizationId: tenantId } });
     const draftCustom = await this.customPackageRepository.count({
-      where: { status: CustomPackageStatus.DRAFT },
+      where: { status: CustomPackageStatus.DRAFT, organizationId: tenantId },
     });
     const quoteSent = await this.customPackageRepository.count({
-      where: { status: CustomPackageStatus.QUOTE_SENT },
+      where: { status: CustomPackageStatus.QUOTE_SENT, organizationId: tenantId },
     });
     const confirmedCustom = await this.customPackageRepository.count({
-      where: { status: CustomPackageStatus.CONFIRMED },
+      where: { status: CustomPackageStatus.CONFIRMED, organizationId: tenantId },
     });
     const completedCustom = await this.customPackageRepository.count({
-      where: { status: CustomPackageStatus.COMPLETED },
+      where: { status: CustomPackageStatus.COMPLETED, organizationId: tenantId },
     });
 
     return {
@@ -698,18 +777,42 @@ export class PackagesService {
     };
   }
 
-  async getPopularPackages(limit: number = 5): Promise<Package[]> {
+  async getPopularPackages(limit: number = 5, tenantId?: string): Promise<Package[]> {
+    if (!tenantId) {
+      const [firstOrg] = await this.packageRepository.query(
+        `SELECT id FROM organization LIMIT 1`,
+      );
+      tenantId = firstOrg?.id;
+    }
+
+    const where: any = { status: PackageStatus.ACTIVE };
+    if (tenantId) {
+      where.organizationId = tenantId;
+    }
+
     return await this.packageRepository.find({
-      where: { status: PackageStatus.ACTIVE },
+      where,
       order: { displayOrder: 'ASC' },
       take: limit,
       relations: ['pricingTiers'],
     });
   }
 
-  async getFeaturedPackages(): Promise<Package[]> {
+  async getFeaturedPackages(tenantId?: string): Promise<Package[]> {
+    if (!tenantId) {
+      const [firstOrg] = await this.packageRepository.query(
+        `SELECT id FROM organization LIMIT 1`,
+      );
+      tenantId = firstOrg?.id;
+    }
+
+    const where: any = { status: PackageStatus.ACTIVE, isFeatured: true };
+    if (tenantId) {
+      where.organizationId = tenantId;
+    }
+
     return await this.packageRepository.find({
-      where: { status: PackageStatus.ACTIVE, isFeatured: true },
+      where,
       order: { displayOrder: 'ASC' },
       relations: ['pricingTiers', 'itineraries'],
     });

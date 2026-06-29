@@ -201,7 +201,7 @@ export class B2bService {
       discountAmount: dto.discountAmount,
       taxPercentage: dto.taxPercentage,
       specialRequests: request.roomPreferences || request.message,
-    });
+    }, request.partner.organizationId);
 
     // C. Update request status
     request.status = B2bRequestStatus.ACCEPTED;

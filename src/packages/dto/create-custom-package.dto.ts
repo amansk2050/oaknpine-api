@@ -263,6 +263,11 @@ export class CreateCustomPackageDto {
   @MaxLength(255)
   assignedTo?: string;
 
+  @ApiPropertyOptional({ description: 'Quote valid until date', example: '2024-02-28' })
+  @IsOptional()
+  @IsDateString()
+  quoteValidUntil?: string;
+
   @ApiPropertyOptional({
     description: 'Custom itineraries',
     type: [CreateCustomPackageItineraryDto],

@@ -308,6 +308,14 @@ export class Package {
   @Column({ type: 'json', nullable: true })
   customFields: Record<string, any>;
 
+  @ApiProperty({
+    description: 'Organization ID this package belongs to',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    required: false,
+  })
+  @Column({ name: 'organization_id', type: 'varchar', length: 255, nullable: true })
+  organizationId: string;
+
   // Relations
   @ApiProperty({
     description: 'Day-wise itinerary',
