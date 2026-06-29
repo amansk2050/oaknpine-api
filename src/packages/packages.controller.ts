@@ -459,8 +459,9 @@ export class PackagesController {
   @ApiResponse({ status: 404, description: 'Package not found' })
   findPackageByCode(
     @Param('code') code: string,
+    @CurrentTenant() tenantId?: string,
   ) {
-    return this.packagesService.findPackageByCode(code);
+    return this.packagesService.findPackageByCode(code, tenantId);
   }
 
   @Public()
@@ -475,8 +476,9 @@ export class PackagesController {
   @ApiResponse({ status: 404, description: 'Package not found' })
   findPackageById(
     @Param('id') id: string,
+    @CurrentTenant() tenantId?: string,
   ) {
-    return this.packagesService.findPackageById(id);
+    return this.packagesService.findPackageById(id, tenantId);
   }
 
   @Put(':id')
