@@ -67,9 +67,11 @@ export class PackagesService {
       );
     }
 
+    const destinationVal = createPackageDto.destination || createPackageDto.destinationsCovered?.[0] || 'Multiple';
+
     // Generate package code
     const packageCode = await this.generatePackageCode(
-      createPackageDto.destination,
+      destinationVal,
       createPackageDto.numberOfNights,
     );
 
@@ -84,6 +86,7 @@ export class PackagesService {
     // Create package without pricingTiers
     const pkg = this.packageRepository.create({
       ...rest,
+      destination: destinationVal,
       packageCode,
       organizationId: tenantId,
       validFrom: createPackageDto.validFrom

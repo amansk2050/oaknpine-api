@@ -340,11 +340,11 @@ export class CreatePackageDto {
   @Min(1)
   numberOfDays: number;
 
-  @ApiProperty({ description: 'Primary destination', example: 'Kalimpong' })
+  @ApiPropertyOptional({ description: 'Primary destination', example: 'Kalimpong' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  destination: string;
+  destination?: string;
 
   @ApiPropertyOptional({
     description: 'Starting point',
