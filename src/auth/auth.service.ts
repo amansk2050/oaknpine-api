@@ -164,6 +164,76 @@ export class AuthService implements OnModuleInit {
         'Database schema checked: "roleType" column ensured in "user" table.',
       );
 
+      // 2b. B2B Invitation & Partner Account tables
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "b2b_invitations" (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "organizationId" VARCHAR(255) NOT NULL,
+          "businessName" VARCHAR(255) NOT NULL,
+          "invitedEmail" VARCHAR(255) NOT NULL,
+          "invitationToken" VARCHAR(128) UNIQUE NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          "expiresAt" TIMESTAMP NOT NULL,
+          "invitedByUserId" VARCHAR(255),
+          "partnerAccountId" UUID,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "b2b_partner_accounts" (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "userId" VARCHAR(255) UNIQUE NOT NULL,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS "b2b_partner_memberships" (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "partnerAccountId" UUID NOT NULL REFERENCES b2b_partner_accounts(id) ON DELETE CASCADE,
+          "organizationId" VARCHAR(255) NOT NULL,
+          "invitationId" UUID,
+          "businessName" VARCHAR(255) NOT NULL,
+          "partnerBusinessName" VARCHAR(255),
+          status VARCHAR(20) NOT NULL DEFAULT 'active',
+          "totalBookingsSent" INT NOT NULL DEFAULT 0,
+          notes TEXT,
+          "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+          "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+        );
+      `);
+
+      // Extend b2b_booking_requests with new columns
+      await this.db.query(`
+        ALTER TABLE b2b_booking_requests
+          ADD COLUMN IF NOT EXISTS "bookingTag" VARCHAR(30),
+          ADD COLUMN IF NOT EXISTS "partnerAccountId" UUID,
+          ADD COLUMN IF NOT EXISTS "partnerMembershipId" UUID;
+      `).catch(() => {}); // Table may not exist yet if fresh install, entities will create it
+
+      await this.db.query(`
+        ALTER TABLE b2b_booking_requests ALTER COLUMN "partnerId" DROP NOT NULL;
+      `).catch(() => {});
+
+      await this.db.query(`
+        UPDATE b2b_partner_memberships pm
+        SET "partnerBusinessName" = COALESCE(
+          NULLIF((SELECT u.name FROM "user" u JOIN b2b_partner_accounts pa ON pa."userId" = u.id WHERE pa.id = pm."partnerAccountId"), ''),
+          (SELECT u.email FROM "user" u JOIN b2b_partner_accounts pa ON pa."userId" = u.id WHERE pa.id = pm."partnerAccountId"),
+          'B2B Partner'
+        )
+        WHERE pm."partnerBusinessName" IS NULL OR pm."partnerBusinessName" = '';
+      `).catch(() => {});
+
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "b2b_inv_org_idx" ON "b2b_invitations"("organizationId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "b2b_inv_token_idx" ON "b2b_invitations"("invitationToken")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "b2b_pa_user_idx" ON "b2b_partner_accounts"("userId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "b2b_pm_partner_idx" ON "b2b_partner_memberships"("partnerAccountId")`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS "b2b_pm_org_idx" ON "b2b_partner_memberships"("organizationId")`);
+
+      this.logger.log('Database schema checked: B2B invitation and partner tables ensured.');
+
       // Business Profile additions to organization table
       await this.db.query(
         `ALTER TABLE "organization" ADD COLUMN IF NOT EXISTS "phone" VARCHAR(50)`,
@@ -189,8 +259,11 @@ export class AuthService implements OnModuleInit {
       await this.db.query(
         `ALTER TABLE "organization" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP`,
       );
+      await this.db.query(
+        `ALTER TABLE "organization" ADD COLUMN IF NOT EXISTS "isSubscribed" BOOLEAN NOT NULL DEFAULT TRUE`,
+      );
       this.logger.log(
-        'Database schema checked: organization business profile columns ensured.',
+        'Database schema checked: organization business profile columns and isSubscribed ensured.',
       );
 
       // Backfill any homestays with NULL ownerId to the first available member user ID so they appear in Super Admin stats
@@ -733,7 +806,27 @@ export class AuthService implements OnModuleInit {
       ],
     );
 
-    const resetUrl = `${dto.redirectTo || 'http://localhost:3001/reset-password'}?token=${token}`;
+    const defaultRedirect =
+      process.env.FRONTEND_URL
+        ? `${process.env.FRONTEND_URL}/reset-password`
+        : 'http://localhost:4000/reset-password';
+
+    const allowedRedirectPrefixes = [
+      process.env.FRONTEND_URL,
+      'http://localhost:4000',
+      'http://localhost:3001',
+    ].filter(Boolean) as string[];
+
+    if (dto.redirectTo) {
+      const isAllowed = allowedRedirectPrefixes.some((prefix) =>
+        dto.redirectTo!.startsWith(prefix),
+      );
+      if (!isAllowed) {
+        throw new BadRequestException('Invalid redirectTo URL');
+      }
+    }
+
+    const resetUrl = `${dto.redirectTo || defaultRedirect}?token=${token}`;
 
     // Send the password reset email asynchronously
     this.emailService
@@ -902,6 +995,14 @@ export class AuthService implements OnModuleInit {
     return this.getOrganization(orgId);
   }
 
+  async toggleSubscription(orgId: string, isSubscribed: boolean): Promise<any> {
+    await this.db.query(
+      `UPDATE organization SET "isSubscribed" = $1, "updatedAt" = NOW() WHERE id = $2`,
+      [isSubscribed, orgId],
+    );
+    return this.getOrganization(orgId);
+  }
+
   async getSuperAdminStatistics(): Promise<any> {
     // 1. Total businesses
     const orgCountResult = await this.db.query(
@@ -938,6 +1039,7 @@ export class AuthService implements OnModuleInit {
          org.website,
          org.address,
          org.gstin,
+         org."isSubscribed",
          (SELECT COUNT(*) FROM homestays h WHERE h."ownerId" IN (SELECT "userId" FROM member m WHERE m."organizationId" = org.id)) as "homestaysCount",
          (SELECT COUNT(*) FROM bookings b WHERE b."homestayId" IN (SELECT id FROM homestays h2 WHERE h2."ownerId" IN (SELECT "userId" FROM member m2 WHERE m2."organizationId" = org.id))) as "bookingsCount",
          (SELECT COUNT(*) FROM package_bookings pb 
@@ -995,17 +1097,15 @@ export class AuthService implements OnModuleInit {
         'Room Booking' as "type",
         b."checkInDate" as "startDate",
         b."checkOutDate" as "endDate",
-        b.status,
+        b.status::text as "status",
         b."totalAmount"::float as "totalAmount",
-        b."totalPaid"::float as "totalPaid",
-        b."pendingAmount"::float as "pendingAmount",
+        b."paidAmount"::float as "totalPaid",
+        b."balanceAmount"::float as "pendingAmount",
         b."createdAt",
         org.name as "businessName",
         org.slug as "businessSlug"
       FROM bookings b
-      LEFT JOIN homestays h ON h.id = b."homestayId"
-      LEFT JOIN member m ON m."userId" = h."ownerId"
-      LEFT JOIN organization org ON org.id = m."organizationId"
+      LEFT JOIN organization org ON org.id = b.organization_id
 
       UNION ALL
 
@@ -1024,30 +1124,31 @@ export class AuthService implements OnModuleInit {
         org.name as "businessName",
         org.slug as "businessSlug"
       FROM package_bookings pb
-      LEFT JOIN leads l ON l.id = pb.lead_id
-      LEFT JOIN member m2 ON m2."userId" = COALESCE(pb.created_by, l."assignedTo")
-      LEFT JOIN organization org ON org.id = m2."organizationId"
+      LEFT JOIN organization org ON org.id = pb.organization_id
       ORDER BY "createdAt" DESC
     `);
   }
 
   async getPublicOrganization(orgId?: string, slug?: string): Promise<any> {
+    if (!orgId && !slug) {
+      throw new BadRequestException(
+        'Either orgId or slug query parameter is required',
+      );
+    }
+
     let rows: any[] = [];
     if (orgId) {
       rows = await this.db.query<any[]>(
         `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization WHERE id = $1`,
         [orgId],
       );
-    } else if (slug) {
+    } else {
       rows = await this.db.query<any[]>(
         `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization WHERE slug = $1`,
         [slug],
       );
-    } else {
-      rows = await this.db.query<any[]>(
-        `SELECT id, name, slug, phone, email, website, address, logo, description FROM organization LIMIT 1`,
-      );
     }
+
     if (!rows.length) {
       return null;
     }

@@ -5,7 +5,8 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
+import { randomBytes } from 'crypto';
 import {
   Booking,
   BookingStatus,
@@ -146,64 +147,71 @@ export class RoomBookingService {
     const taxAmount = (totalAmount * taxPercentage) / 100;
     totalAmount += taxAmount;
 
-    const bookingReference = await this.generateBookingReference();
+    const bookingReference = this.generateBookingReference();
 
-    const booking = this.bookingRepository.create({
-      bookingReference,
-      organizationId: tenantId,
-      leadId: createBookingDto.leadId ?? null,
-      guestId: createBookingDto.guestId ?? null,
-      bookingSource: createBookingDto.bookingSource ?? BookingSource.LEAD,
-      b2bPartnerId: createBookingDto.b2bPartnerId ?? null,
-      b2bBusinessName: createBookingDto.b2bBusinessName ?? null,
-      homestayId: createBookingDto.homestayId,
-      guestName,
-      guestEmail,
-      guestPhone,
-      numberOfAdults,
-      numberOfChildren,
-      checkInDate: checkIn,
-      checkOutDate: checkOut,
-      numberOfNights,
-      totalRooms: createBookingDto.rooms.length,
-      totalAmount,
-      discountAmount,
-      taxAmount,
-      balanceAmount: totalAmount,
-      specialRequests: createBookingDto.specialRequests,
-      notes: createBookingDto.notes,
-      expectedArrivalTime: createBookingDto.expectedArrivalTime,
-      guestDetails: createBookingDto.guestDetails,
-      status: BookingStatus.PENDING,
-    });
+    const savedBooking = await this.bookingRepository.manager.transaction(
+      async (manager: EntityManager) => {
+        const booking = manager.create(Booking, {
+          bookingReference,
+          organizationId: tenantId,
+          leadId: createBookingDto.leadId ?? null,
+          guestId: createBookingDto.guestId ?? null,
+          bookingSource: createBookingDto.bookingSource ?? BookingSource.LEAD,
+          b2bPartnerId: createBookingDto.b2bPartnerId ?? null,
+          b2bBusinessName: createBookingDto.b2bBusinessName ?? null,
+          homestayId: createBookingDto.homestayId,
+          guestName,
+          guestEmail,
+          guestPhone,
+          numberOfAdults,
+          numberOfChildren,
+          checkInDate: checkIn,
+          checkOutDate: checkOut,
+          numberOfNights,
+          totalRooms: createBookingDto.rooms.length,
+          totalAmount,
+          discountAmount,
+          taxAmount,
+          balanceAmount: totalAmount,
+          specialRequests: createBookingDto.specialRequests,
+          notes: createBookingDto.notes,
+          expectedArrivalTime: createBookingDto.expectedArrivalTime,
+          guestDetails: createBookingDto.guestDetails,
+          status: BookingStatus.PENDING,
+        });
 
-    const savedBooking = await this.bookingRepository.save(booking);
+        const saved = await manager.save(booking);
 
-    for (const roomData of bookingRooms) {
-      const bookingRoom = this.bookingRoomRepository.create({
-        ...roomData,
-        bookingId: savedBooking.id,
-      });
-      await this.bookingRoomRepository.save(bookingRoom);
-    }
+        for (const roomData of bookingRooms) {
+          const bookingRoom = manager.create(BookingRoom, {
+            ...roomData,
+            bookingId: saved.id,
+          });
+          await manager.save(bookingRoom);
+        }
 
-    // Update lead status if booking was from a lead
-    if (createBookingDto.leadId) {
-      await this.leadService.updateLeadStatus(createBookingDto.leadId, {
-        status: 'converted' as any,
-        bookingId: savedBooking.id,
-      }, tenantId);
-    }
+        // Update lead status if booking was from a lead
+        if (createBookingDto.leadId) {
+          await this.leadService.updateLeadStatus(
+            createBookingDto.leadId,
+            { status: 'converted' as any, bookingId: saved.id },
+            tenantId,
+          );
+        }
 
-    // Update guest booking count if direct guest
-    if (createBookingDto.guestId) {
-      await this.guestService.incrementBookingCount(
-        createBookingDto.guestId,
-        totalAmount,
-      );
-    }
+        // Update guest booking count if direct guest
+        if (createBookingDto.guestId) {
+          await this.guestService.incrementBookingCount(
+            createBookingDto.guestId,
+            totalAmount,
+          );
+        }
 
-    // Send confirmation email asynchronously
+        return saved;
+      },
+    );
+
+    // Send confirmation email asynchronously (outside the transaction)
     if (guestEmail) {
       this.homestayService
         .findHomestayById(createBookingDto.homestayId, tenantId)
@@ -233,7 +241,6 @@ export class RoomBookingService {
           }
         })
         .catch((err) => {
-          // Silent logging for email sending errors so reservation is not cancelled
           this.bookingRepository.manager.connection.logger.log(
             'log',
             `Booking confirmation email trigger failed: ${err.message}`,
@@ -447,8 +454,14 @@ export class RoomBookingService {
       throw new BadRequestException('Cannot add payment to cancelled booking');
     }
 
+    if (Number(createPaymentDto.amount) > Number(booking.balanceAmount)) {
+      throw new BadRequestException(
+        `Payment amount (${createPaymentDto.amount}) cannot exceed remaining balance (${booking.balanceAmount})`,
+      );
+    }
+
     // Generate payment reference
-    const paymentReference = await this.generatePaymentReference();
+    const paymentReference = this.generatePaymentReference();
 
     const payment = this.paymentRepository.create({
       ...createPaymentDto,
@@ -625,15 +638,15 @@ export class RoomBookingService {
   }
 
   // Helper Methods
-  private async generateBookingReference(): Promise<string> {
+  private generateBookingReference(): string {
     const year = new Date().getFullYear();
-    const count = await this.bookingRepository.count();
-    return `BKG-${year}-${String(count + 1).padStart(4, '0')}`;
+    const random = randomBytes(3).toString('hex').toUpperCase();
+    return `BKG-${year}-${random}`;
   }
 
-  private async generatePaymentReference(): Promise<string> {
+  private generatePaymentReference(): string {
     const year = new Date().getFullYear();
-    const count = await this.paymentRepository.count();
-    return `PAY-${year}-${String(count + 1).padStart(4, '0')}`;
+    const random = randomBytes(3).toString('hex').toUpperCase();
+    return `PAY-${year}-${random}`;
   }
 }

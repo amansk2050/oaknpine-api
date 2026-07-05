@@ -8,9 +8,10 @@ import {
   Res,
   HttpCode,
   HttpStatus,
-  UnauthorizedException,
   NotFoundException,
   Query,
+  UseGuards,
+  Param,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Request, Response } from 'express';
@@ -28,6 +29,8 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateOrganizationDto } from './dto/update-org.dto';
 import { CurrentTenant } from './decorators/current-tenant.decorator';
 import { AuthUser } from './auth.service';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -180,33 +183,43 @@ export class AuthController {
   @Get('super-admin/statistics')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('JWT-auth')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
   @ApiOperation({ summary: 'Get global analytics for super admins' })
-  async getSuperAdminStatistics(@CurrentUser() user: AuthUser) {
-    if (user.roleType !== 'super_admin') {
-      throw new UnauthorizedException('Super admin privileges required');
-    }
+  async getSuperAdminStatistics() {
     return this.authService.getSuperAdminStatistics();
   }
 
   @Get('super-admin/homestays')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('JWT-auth')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
   @ApiOperation({ summary: 'Get all homestays globally for super admins' })
-  async getSuperAdminHomestays(@CurrentUser() user: AuthUser) {
-    if (user.roleType !== 'super_admin') {
-      throw new UnauthorizedException('Super admin privileges required');
-    }
+  async getSuperAdminHomestays() {
     return this.authService.getSuperAdminHomestays();
   }
 
   @Get('super-admin/bookings')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('JWT-auth')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
   @ApiOperation({ summary: 'Get all bookings globally for super admins' })
-  async getSuperAdminBookings(@CurrentUser() user: AuthUser) {
-    if (user.roleType !== 'super_admin') {
-      throw new UnauthorizedException('Super admin privileges required');
-    }
+  async getSuperAdminBookings() {
     return this.authService.getSuperAdminBookings();
+  }
+
+  @Patch('super-admin/businesses/:id/subscription')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
+  @ApiOperation({ summary: 'Toggle subscription status of a business' })
+  async toggleSubscription(
+    @Param('id') id: string,
+    @Body() body: { isSubscribed: boolean },
+  ) {
+    return this.authService.toggleSubscription(id, body.isSubscribed);
   }
 }

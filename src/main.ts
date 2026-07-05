@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import * as express from 'express';
 import { join } from 'path';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -12,24 +13,31 @@ async function bootstrap() {
   const corsOriginEnv = process.env.CORS_ORIGIN || 'http://localhost:4000';
   const origins = corsOriginEnv.split(',').map((o) => o.trim().replace(/\/$/, ''));
 
-  // Serve uploaded files statically with CORS headers (needed for cross-origin <img> tags)
-  app.use(
-    '/uploads',
-    (req: any, res: any, next: any) => {
-      const origin = req.headers.origin;
-      if (origin) {
-        const normalizedOrigin = origin.replace(/\/$/, '');
-        if (origins.includes(normalizedOrigin) || origins.includes('*')) {
-          res.header('Access-Control-Allow-Origin', origin);
+  // Serve uploaded files statically only in non-production environments.
+  // In production, files are served from GCS or through the authenticated
+  // GET /api/v1/upload/file/:filename endpoint.
+  if (process.env.NODE_ENV !== 'production') {
+    app.use(
+      '/uploads',
+      (req: any, res: any, next: any) => {
+        const origin = req.headers.origin;
+        if (origin) {
+          const normalizedOrigin = origin.replace(/\/$/, '');
+          if (origins.includes(normalizedOrigin) || origins.includes('*')) {
+            res.header('Access-Control-Allow-Origin', origin);
+          }
+        } else {
+          res.header('Access-Control-Allow-Origin', '*');
         }
-      } else {
-        res.header('Access-Control-Allow-Origin', '*');
-      }
-      res.header('Access-Control-Allow-Methods', 'GET');
-      next();
-    },
-    express.static(join(process.cwd(), 'uploads')),
-  );
+        res.header('Access-Control-Allow-Methods', 'GET');
+        next();
+      },
+      express.static(join(process.cwd(), 'uploads')),
+    );
+  }
+
+  // Security headers (must be applied before routes)
+  app.use(helmet());
 
   // Enable CORS with environment variable configuration
   app.enableCors({
@@ -105,26 +113,28 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
 
-  // Setup Swagger UI
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'none',
-      filter: true,
-      showRequestDuration: true,
-      syntaxHighlight: {
-        theme: 'monokai',
+  // Swagger UI is only served in non-production environments.
+  if (process.env.NODE_ENV !== 'production') {
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'none',
+        filter: true,
+        showRequestDuration: true,
+        syntaxHighlight: {
+          theme: 'monokai',
+        },
+        tryItOutEnabled: true,
       },
-      tryItOutEnabled: true,
-    },
-    customSiteTitle: 'PineZone API Documentation',
-    customfavIcon: 'https://pinezone.app/favicon.ico',
-    customCss: `
-      .swagger-ui .topbar { display: none }
-      .swagger-ui .info { margin: 20px 0; }
-      .swagger-ui .info .title { font-size: 2.5rem; }
-    `,
-  });
+      customSiteTitle: 'PineZone API Documentation',
+      customfavIcon: 'https://pinezone.app/favicon.ico',
+      customCss: `
+        .swagger-ui .topbar { display: none }
+        .swagger-ui .info { margin: 20px 0; }
+        .swagger-ui .info .title { font-size: 2.5rem; }
+      `,
+    });
+  }
 
   // Global prefix for all routes
   app.setGlobalPrefix('api/v1');
@@ -133,6 +143,8 @@ async function bootstrap() {
   await app.listen(port);
 
   console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  }
 }
 bootstrap();

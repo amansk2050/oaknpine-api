@@ -9,11 +9,18 @@ import {
 } from 'typeorm';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { B2bPartner } from './b2b-partner.entity';
+import { B2bPartnerMembership } from './b2b-partner-membership.entity';
 
 export enum B2bRequestStatus {
   PENDING = 'pending',
   ACCEPTED = 'accepted',
   REJECTED = 'rejected',
+}
+
+export enum BookingTag {
+  SOFT_BLOCK = 'soft_block',       // Yellow — tentative hold
+  BLOCKED_UNPAID = 'blocked_unpaid', // Blue — confirmed, payment pending
+  BLOCKED_PAID = 'blocked_paid',   // Green — confirmed and paid
 }
 
 @Entity('b2b_booking_requests')
@@ -22,8 +29,8 @@ export class B2bBookingRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ description: 'B2B Partner UUID', example: 'partner-uuid' })
-  @Column({ type: 'uuid' })
+  @ApiPropertyOptional({ description: 'B2B Partner UUID (nullable for new invitations)', example: 'partner-uuid' })
+  @Column({ type: 'uuid', nullable: true })
   partnerId: string;
 
   @ApiProperty({
@@ -108,6 +115,35 @@ export class B2bBookingRequest {
   })
   @Column({ type: 'uuid', nullable: true })
   bookingId: string;
+
+  @ApiPropertyOptional({
+    description: 'Booking tag set by the business: soft_block / blocked_unpaid / blocked_paid',
+    enum: BookingTag,
+  })
+  @Column({ type: 'enum', enum: BookingTag, nullable: true })
+  bookingTag: BookingTag;
+
+  @ApiPropertyOptional({
+    description: 'Partner account ID (for invitation-based partners)',
+    example: 'partner-account-uuid',
+  })
+  @Column({ type: 'uuid', nullable: true })
+  partnerAccountId: string;
+
+  @ApiPropertyOptional({
+    description: 'Partner membership ID linking partner to the specific business',
+    example: 'membership-uuid',
+  })
+  @Column({ type: 'uuid', nullable: true })
+  partnerMembershipId: string;
+
+  @ApiPropertyOptional({
+    description: 'B2B Partner Membership details',
+    type: () => B2bPartnerMembership,
+  })
+  @ManyToOne(() => B2bPartnerMembership, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'partnerMembershipId' })
+  partnerMembership: B2bPartnerMembership;
 
   @ApiProperty({
     description: 'Partner who submitted this request',

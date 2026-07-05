@@ -75,4 +75,11 @@ export class CreateB2bBookingRequestDto {
   @IsOptional()
   @IsString()
   message?: string;
+
+  @ApiPropertyOptional({
+    description: 'Booking tag set by partner: soft_block / blocked_unpaid / blocked_paid',
+  })
+  @IsOptional()
+  @IsString()
+  bookingTag?: string;
 }

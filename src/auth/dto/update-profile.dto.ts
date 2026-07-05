@@ -14,10 +14,10 @@ export class UpdateProfileDto {
   @ApiPropertyOptional({
     description: 'Role type of the user',
     example: 'Lease Owner',
-    enum: ['Lease Owner', 'Owner', 'super_admin'],
+    enum: ['Lease Owner', 'Owner'],
   })
   @IsOptional()
   @IsString()
-  @IsIn(['Lease Owner', 'Owner', 'super_admin'])
+  @IsIn(['Lease Owner', 'Owner'])
   roleType?: string;
 }
