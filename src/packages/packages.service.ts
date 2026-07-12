@@ -271,20 +271,68 @@ export class PackagesService {
       );
     }
 
-    const destinationVal = updatePackageDto.destination || updatePackageDto.destinationsCovered?.[0];
+    const { pricingTiers, itineraries, inclusions, ...rest } = updatePackageDto;
+
+    const destinationVal = rest.destination || rest.destinationsCovered?.[0];
 
     Object.assign(pkg, {
-      ...updatePackageDto,
+      ...rest,
       ...(destinationVal ? { destination: destinationVal } : {}),
-      validFrom: updatePackageDto.validFrom
-        ? new Date(updatePackageDto.validFrom)
+      validFrom: rest.validFrom
+        ? new Date(rest.validFrom)
         : pkg.validFrom,
-      validUntil: updatePackageDto.validUntil
-        ? new Date(updatePackageDto.validUntil)
+      validUntil: rest.validUntil
+        ? new Date(rest.validUntil)
         : pkg.validUntil,
     });
 
-    return await this.packageRepository.save(pkg);
+    // Save package base details
+    await this.packageRepository.save(pkg);
+
+    // Update pricing tiers manually if provided
+    if (pricingTiers !== undefined) {
+      await this.pricingRepository.delete({ packageId: id });
+      if (pricingTiers && pricingTiers.length > 0) {
+        for (const tier of pricingTiers) {
+          const pricing = this.pricingRepository.create({
+            ...tier,
+            packageId: id,
+            totalPrice: tier.pricePerHead * tier.numberOfPersons,
+          });
+          await this.pricingRepository.save(pricing);
+        }
+      }
+    }
+
+    // Update itineraries manually if provided
+    if (itineraries !== undefined) {
+      await this.itineraryRepository.delete({ packageId: id });
+      if (itineraries && itineraries.length > 0) {
+        for (const itinerary of itineraries) {
+          const item = this.itineraryRepository.create({
+            ...itinerary,
+            packageId: id,
+          });
+          await this.itineraryRepository.save(item);
+        }
+      }
+    }
+
+    // Update inclusions manually if provided
+    if (inclusions !== undefined) {
+      await this.inclusionRepository.delete({ packageId: id });
+      if (inclusions && inclusions.length > 0) {
+        for (const inclusion of inclusions) {
+          const item = this.inclusionRepository.create({
+            ...inclusion,
+            packageId: id,
+          });
+          await this.inclusionRepository.save(item);
+        }
+      }
+    }
+
+    return await this.findPackageById(id, tenantId);
   }
 
   async deletePackage(id: string, tenantId: string): Promise<void> {
@@ -834,9 +882,9 @@ export class PackagesService {
   // ==================== SHARE TOKEN METHODS ====================
 
   /**
-   * Generates a tamper-proof HMAC-SHA256 signed share token.
-   * Payload: { packageId, showPricing, tenantId, iat }
-   * Token format: base64url(payload).base64url(HMAC)
+   * Generates a tamper-proof compact HMAC-SHA256 signed share token.
+   * Payload format: showPricing.HMAC(packageId + "." + showPricing)
+   * e.g., "0.sig" or "1.sig"
    */
   generateShareToken(
     packageId: string,
@@ -844,31 +892,29 @@ export class PackagesService {
     tenantId: string,
   ): { token: string } {
     const secret = process.env.JWT_SECRET || 'default-secret';
-    const payload = Buffer.from(
-      JSON.stringify({ packageId, showPricing, tenantId, iat: Date.now() }),
-    ).toString('base64url');
+    const val = showPricing ? '1' : '0';
     const sig = crypto
       .createHmac('sha256', secret)
-      .update(payload)
+      .update(`${packageId}.${val}`)
       .digest('base64url');
-    return { token: `${payload}.${sig}` };
+    return { token: `${val}.${sig}` };
   }
 
   /**
-   * Verifies an HMAC-signed share token.
-   * Returns the decoded payload, or null if invalid/tampered.
+   * Verifies an HMAC-signed compact share token for a specific package.
    */
   verifyShareToken(
+    packageId: string,
     token: string,
-  ): { packageId: string; showPricing: boolean; tenantId: string } | null {
+  ): { showPricing: boolean } | null {
     try {
       const parts = token.split('.');
       if (parts.length !== 2) return null;
-      const [payload, receivedSig] = parts;
+      const [val, receivedSig] = parts;
       const secret = process.env.JWT_SECRET || 'default-secret';
       const expectedSig = crypto
         .createHmac('sha256', secret)
-        .update(payload)
+        .update(`${packageId}.${val}`)
         .digest('base64url');
       // Constant-time comparison to prevent timing attacks
       if (
@@ -880,7 +926,7 @@ export class PackagesService {
       ) {
         return null;
       }
-      return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+      return { showPricing: val === '1' };
     } catch {
       return null;
     }
@@ -897,19 +943,20 @@ export class PackagesService {
     const pkg = await this.findPackageById(id);
 
     if (shareToken) {
-      const decoded = this.verifyShareToken(shareToken);
-      // Token is valid and belongs to this package
-      if (decoded && decoded.packageId === id && !decoded.showPricing) {
-        return {
-          ...pkg,
-          pricingTiers: [],
-          basePricePerHead: 0,
-          minPricePerHead: 0,
-          pricingHidden: true,
-        };
-      }
-      // Token present but invalid/tampered — reject with 401
-      if (!decoded || decoded.packageId !== id) {
+      const decoded = this.verifyShareToken(id, shareToken);
+      // Token is valid
+      if (decoded) {
+        if (!decoded.showPricing) {
+          return {
+            ...pkg,
+            pricingTiers: [],
+            basePricePerHead: 0,
+            minPricePerHead: 0,
+            pricingHidden: true,
+          };
+        }
+      } else {
+        // Token present but invalid/tampered — reject with 401
         throw new UnauthorizedException('Invalid or tampered share token');
       }
     }

@@ -324,6 +324,7 @@ export class Package {
   })
   @OneToMany(() => PackageItinerary, (itinerary) => itinerary.package, {
     cascade: true,
+    orphanedRowAction: 'delete',
   })
   itineraries: PackageItinerary[];
 
@@ -334,6 +335,7 @@ export class Package {
   })
   @OneToMany(() => PackagePricing, (pricing) => pricing.package, {
     cascade: true,
+    orphanedRowAction: 'delete',
   })
   pricingTiers: PackagePricing[];
 
@@ -344,6 +346,7 @@ export class Package {
   })
   @OneToMany(() => PackageInclusion, (inclusion) => inclusion.package, {
     cascade: true,
+    orphanedRowAction: 'delete',
   })
   inclusions: PackageInclusion[];
 

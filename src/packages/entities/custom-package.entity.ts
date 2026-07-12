@@ -273,7 +273,7 @@ export class CustomPackage {
   @OneToMany(
     () => CustomPackageItinerary,
     (itinerary) => itinerary.customPackage,
-    { cascade: true },
+    { cascade: true, orphanedRowAction: 'delete' },
   )
   itineraries: CustomPackageItinerary[];
 
