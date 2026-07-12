@@ -2,7 +2,9 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Package, PackageStatus } from './entities/package.entity';
@@ -383,6 +385,7 @@ export class PackagesService {
     const pricing = this.pricingRepository.create({
       ...dto,
       packageId,
+      totalPrice: dto.pricePerHead * dto.numberOfPersons,
     });
 
     return await this.pricingRepository.save(pricing);
@@ -409,7 +412,10 @@ export class PackagesService {
       );
     }
 
-    Object.assign(pricing, dto);
+    Object.assign(pricing, {
+      ...dto,
+      totalPrice: (dto.pricePerHead ?? pricing.pricePerHead) * (dto.numberOfPersons ?? pricing.numberOfPersons),
+    });
     return await this.pricingRepository.save(pricing);
   }
 
@@ -451,6 +457,7 @@ export class PackagesService {
       const pricing = this.pricingRepository.create({
         ...tier,
         packageId,
+        totalPrice: tier.pricePerHead * tier.numberOfPersons,
       });
       newTiers.push(await this.pricingRepository.save(pricing));
     }
@@ -822,6 +829,93 @@ export class PackagesService {
       order: { displayOrder: 'ASC' },
       relations: ['pricingTiers', 'itineraries'],
     });
+  }
+
+  // ==================== SHARE TOKEN METHODS ====================
+
+  /**
+   * Generates a tamper-proof HMAC-SHA256 signed share token.
+   * Payload: { packageId, showPricing, tenantId, iat }
+   * Token format: base64url(payload).base64url(HMAC)
+   */
+  generateShareToken(
+    packageId: string,
+    showPricing: boolean,
+    tenantId: string,
+  ): { token: string } {
+    const secret = process.env.JWT_SECRET || 'default-secret';
+    const payload = Buffer.from(
+      JSON.stringify({ packageId, showPricing, tenantId, iat: Date.now() }),
+    ).toString('base64url');
+    const sig = crypto
+      .createHmac('sha256', secret)
+      .update(payload)
+      .digest('base64url');
+    return { token: `${payload}.${sig}` };
+  }
+
+  /**
+   * Verifies an HMAC-signed share token.
+   * Returns the decoded payload, or null if invalid/tampered.
+   */
+  verifyShareToken(
+    token: string,
+  ): { packageId: string; showPricing: boolean; tenantId: string } | null {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 2) return null;
+      const [payload, receivedSig] = parts;
+      const secret = process.env.JWT_SECRET || 'default-secret';
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('base64url');
+      // Constant-time comparison to prevent timing attacks
+      if (
+        expectedSig.length !== receivedSig.length ||
+        !crypto.timingSafeEqual(
+          Buffer.from(expectedSig),
+          Buffer.from(receivedSig),
+        )
+      ) {
+        return null;
+      }
+      return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Public-facing package fetch that respects a share token.
+   * If token is valid and showPricing=false, strips all pricing fields.
+   */
+  async getPublicPackageById(
+    id: string,
+    shareToken?: string,
+  ): Promise<Package & { pricingHidden?: boolean }> {
+    const pkg = await this.findPackageById(id);
+
+    if (shareToken) {
+      const decoded = this.verifyShareToken(shareToken);
+      // Token is valid and belongs to this package
+      if (decoded && decoded.packageId === id && !decoded.showPricing) {
+        return {
+          ...pkg,
+          pricingTiers: [],
+          basePricePerHead: 0,
+          minPricePerHead: 0,
+          pricingHidden: true,
+        };
+      }
+      // Token present but invalid/tampered — reject with 401
+      if (!decoded || decoded.packageId !== id) {
+        throw new UnauthorizedException('Invalid or tampered share token');
+      }
+    }
+
+    // No token or token says showPricing=true → full data
+    return pkg;
   }
 
   // ==================== HELPER METHODS ====================
